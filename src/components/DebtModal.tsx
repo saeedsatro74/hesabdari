@@ -3,7 +3,7 @@ import { Transaction, PriorityLevel, TransactionStatus } from '../types';
 import { cleanShaba, getBankFromShaba } from '../utils/shaba';
 import { formatToman, toEnglishDigits, numberToPersianWords } from '../utils/numberToPersianWords';
 import { formatToJalali, getTodayGregorian } from '../utils/dateUtils';
-import { X, Check, CreditCard, AlertCircle } from 'lucide-react';
+import { X, Check, CreditCard, AlertCircle, FileCheck2, FileText } from 'lucide-react';
 
 interface DebtModalProps {
   isOpen: boolean;
@@ -19,6 +19,7 @@ export const DebtModal: React.FC<DebtModalProps> = ({
   editingTransaction,
 }) => {
   const [fullName, setFullName] = useState('');
+  const [isOfficial, setIsOfficial] = useState(false);
   const [shabaNumber, setShabaNumber] = useState('');
   const [amountStr, setAmountStr] = useState('');
   const [dueDate, setDueDate] = useState(getTodayGregorian());
@@ -30,6 +31,7 @@ export const DebtModal: React.FC<DebtModalProps> = ({
   useEffect(() => {
     if (editingTransaction && editingTransaction.type === 'debt') {
       setFullName(editingTransaction.fullName);
+      setIsOfficial(!!editingTransaction.isOfficial);
       setShabaNumber(editingTransaction.shabaNumber || '');
       setAmountStr(editingTransaction.amount ? String(editingTransaction.amount) : '');
       setDueDate(editingTransaction.dueDate || getTodayGregorian());
@@ -39,6 +41,7 @@ export const DebtModal: React.FC<DebtModalProps> = ({
       setErrorMsg('');
     } else {
       setFullName('');
+      setIsOfficial(false);
       setShabaNumber('IR');
       setAmountStr('');
       setDueDate(getTodayGregorian());
@@ -85,6 +88,7 @@ export const DebtModal: React.FC<DebtModalProps> = ({
       {
         type: 'debt',
         fullName: fullName.trim(),
+        isOfficial,
         shabaNumber: cleanShaba(shabaNumber),
         bankName: detectedBank?.name,
         amount: rawAmount,
@@ -129,6 +133,39 @@ export const DebtModal: React.FC<DebtModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs">
+          {/* انتخاب رسمی یا غیر رسمی */}
+          <div>
+            <label className="block text-slate-700 font-bold mb-1.5">
+              نوع سند مالی / فاکتور
+            </label>
+            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+              <button
+                type="button"
+                onClick={() => setIsOfficial(true)}
+                className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                  isOfficial
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <FileCheck2 className="w-4 h-4" />
+                <span>رسمی (فاکتور رسمی)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsOfficial(false)}
+                className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                  !isOfficial
+                    ? 'bg-white text-slate-800 shadow-xs border border-slate-300'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <FileText className="w-4 h-4 text-slate-500" />
+                <span>غیر رسمی (عادی / آزاد)</span>
+              </button>
+            </div>
+          </div>
+
           {/* نام بستانکار */}
           <div>
             <label className="block text-slate-700 font-bold mb-1.5">

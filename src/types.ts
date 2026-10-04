@@ -27,6 +27,7 @@ export interface Transaction {
   priority: PriorityLevel; // سطح اولویت
   priorityRank: number; // رتبه عددی جهت اولویت‌بندی دستی (۱ بالاترین)
   isPinnedTop?: boolean; // آیا در اولویت فوری تثبیت شده
+  isOfficial?: boolean; // رسمی (فاکتور رسمی) یا غیررسمی (عادی/آزاد)
   status: TransactionStatus;
   category?: string; // دسته‌بندی
   description?: string; // بابت / توضیحات

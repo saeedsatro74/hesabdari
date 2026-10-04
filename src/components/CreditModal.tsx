@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Transaction, PriorityLevel, TransactionStatus } from '../types';
 import { formatToman, toEnglishDigits, numberToPersianWords } from '../utils/numberToPersianWords';
 import { formatToJalali, getTodayGregorian } from '../utils/dateUtils';
-import { X, Check, Wallet, AlertCircle } from 'lucide-react';
+import { X, Check, Wallet, AlertCircle, FileCheck2, FileText } from 'lucide-react';
 
 interface CreditModalProps {
   isOpen: boolean;
@@ -18,6 +18,7 @@ export const CreditModal: React.FC<CreditModalProps> = ({
   editingTransaction,
 }) => {
   const [fullName, setFullName] = useState('');
+  const [isOfficial, setIsOfficial] = useState(false);
   const [amountStr, setAmountStr] = useState('');
   const [dueDate, setDueDate] = useState(getTodayGregorian());
   const [priority, setPriority] = useState<PriorityLevel>('high');
@@ -28,6 +29,7 @@ export const CreditModal: React.FC<CreditModalProps> = ({
   useEffect(() => {
     if (editingTransaction && editingTransaction.type === 'credit') {
       setFullName(editingTransaction.fullName);
+      setIsOfficial(!!editingTransaction.isOfficial);
       setAmountStr(editingTransaction.amount ? String(editingTransaction.amount) : '');
       setDueDate(editingTransaction.dueDate || getTodayGregorian());
       setPriority(editingTransaction.priority || 'high');
@@ -36,6 +38,7 @@ export const CreditModal: React.FC<CreditModalProps> = ({
       setErrorMsg('');
     } else {
       setFullName('');
+      setIsOfficial(false);
       setAmountStr('');
       setDueDate(getTodayGregorian());
       setPriority('high');
@@ -72,6 +75,7 @@ export const CreditModal: React.FC<CreditModalProps> = ({
       {
         type: 'credit',
         fullName: fullName.trim(),
+        isOfficial,
         shabaNumber: '',
         amount: rawAmount,
         paidAmount: editingTransaction ? editingTransaction.paidAmount : 0,
@@ -115,6 +119,39 @@ export const CreditModal: React.FC<CreditModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs">
+          {/* انتخاب رسمی یا غیر رسمی */}
+          <div>
+            <label className="block text-slate-700 font-bold mb-1.5">
+              نوع سند مالی / فاکتور
+            </label>
+            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+              <button
+                type="button"
+                onClick={() => setIsOfficial(true)}
+                className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                  isOfficial
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <FileCheck2 className="w-4 h-4" />
+                <span>رسمی (فاکتور رسمی)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsOfficial(false)}
+                className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                  !isOfficial
+                    ? 'bg-white text-slate-800 shadow-xs border border-slate-300'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <FileText className="w-4 h-4 text-slate-500" />
+                <span>غیر رسمی (عادی / آزاد)</span>
+              </button>
+            </div>
+          </div>
+
           {/* نام بدهکار (طرف حساب) */}
           <div>
             <label className="block text-slate-700 font-bold mb-1.5">

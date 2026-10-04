@@ -33,6 +33,9 @@ import {
   ArrowRight,
   CreditCard,
   Wallet,
+  FileCheck2,
+  FileText,
+  BarChart3,
   X 
 } from 'lucide-react';
 
@@ -129,6 +132,7 @@ export default function App() {
               id: t.id,
               type: t.type,
               fullName: t.full_name || t.fullName,
+              isOfficial: Boolean(t.is_official ?? t.isOfficial),
               amount: Number(t.amount) || 0,
               paidAmount: Number(t.paid_amount) || Number(t.paidAmount) || 0,
               shabaNumber: t.shaba_number || t.shabaNumber || '',
@@ -223,6 +227,7 @@ export default function App() {
         id: t.id,
         type: t.type,
         full_name: t.fullName,
+        is_official: Boolean(t.isOfficial),
         amount: Number(t.amount) || 0,
         shaba_number: t.shabaNumber || null,
         bank_name: t.bankName || null,
@@ -555,6 +560,7 @@ export default function App() {
             id,
             type: updatedItem.type,
             full_name: updatedItem.fullName,
+            is_official: Boolean(updatedItem.isOfficial),
             amount: Number(updatedItem.amount) || 0,
             shaba_number: updatedItem.shabaNumber || null,
             bank_name: updatedItem.bankName || null,
@@ -595,6 +601,7 @@ export default function App() {
           id: newId,
           type: newItem.type,
           full_name: newItem.fullName,
+          is_official: Boolean(newItem.isOfficial),
           amount: Number(newItem.amount) || 0,
           shaba_number: newItem.shabaNumber || null,
           bank_name: newItem.bankName || null,
@@ -1053,8 +1060,19 @@ export default function App() {
 
                               {/* بستانکار و شبا */}
                               <td className="py-2.5 px-3">
-                                <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                                <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
                                   <span>{item.fullName}</span>
+                                  {item.isOfficial ? (
+                                    <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200" title="فاکتور رسمی">
+                                      <FileCheck2 className="w-2.5 h-2.5 text-blue-600" />
+                                      <span>رسمی</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200" title="سند عادی / غیررسمی">
+                                      <FileText className="w-2.5 h-2.5 text-slate-400" />
+                                      <span>غیررسمی</span>
+                                    </span>
+                                  )}
                                   {item.isPinnedTop && (
                                     <span className="text-[9px] bg-slate-900 text-white font-bold px-1 py-0.2 rounded">
                                       اولویت اول
@@ -1299,8 +1317,19 @@ export default function App() {
 
                               {/* طرف حساب */}
                               <td className="py-2.5 px-3">
-                                <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                                <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
                                   <span>{item.fullName}</span>
+                                  {item.isOfficial ? (
+                                    <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200" title="فاکتور رسمی">
+                                      <FileCheck2 className="w-2.5 h-2.5 text-blue-600" />
+                                      <span>رسمی</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200" title="سند عادی / غیررسمی">
+                                      <FileText className="w-2.5 h-2.5 text-slate-400" />
+                                      <span>غیررسمی</span>
+                                    </span>
+                                  )}
                                   {item.isPinnedTop && (
                                     <span className="text-[9px] bg-slate-900 text-white font-bold px-1 py-0.2 rounded">
                                       اولویت اول
