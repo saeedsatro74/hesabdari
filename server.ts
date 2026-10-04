@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 import { db } from './src/db/index.ts';
 import { systemAuth, transactions, history } from './src/db/schema.ts';
 import { supabase } from './src/lib/supabase.ts';
-import { eq } from 'drizzle-orm';
+import { eq, sql, notInArray } from 'drizzle-orm';
 
 dotenv.config();
 
@@ -226,24 +226,46 @@ async function startServer() {
         console.warn('Supabase sync transactions error:', supaErr);
       }
 
-      // ۲. ذخیره در پایگاه داده لوکال
+      // ۲. ذخیره در پایگاه داده لوکال با استفاده از Upsert برای جلوگیری از خطای race condition یا duplicate key
       try {
-        await db.delete(transactions);
         if (items.length > 0) {
           const insertRows = items.map((t) => ({
-            id: t.id,
-            type: t.type,
-            fullName: t.fullName,
+            id: String(t.id),
+            type: String(t.type || 'debt'),
+            fullName: String(t.fullName || ''),
             amount: Number(t.amount) || 0,
             shabaNumber: t.shabaNumber || null,
             bankName: t.bankName || null,
             jalaliDueDate: t.jalaliDueDate || '',
             priority: Number(t.priorityRank) || (typeof t.priority === 'number' ? t.priority : 1),
             isPinnedTop: Boolean(t.isPinnedTop),
-            status: t.status || 'pending',
+            status: String(t.status || 'pending'),
             updatedAt: new Date(),
           }));
-          await db.insert(transactions).values(insertRows);
+
+          const ids = insertRows.map((r) => r.id);
+          await db.delete(transactions).where(notInArray(transactions.id, ids));
+
+          await db
+            .insert(transactions)
+            .values(insertRows)
+            .onConflictDoUpdate({
+              target: transactions.id,
+              set: {
+                type: sql`excluded.type`,
+                fullName: sql`excluded.full_name`,
+                amount: sql`excluded.amount`,
+                shabaNumber: sql`excluded.shaba_number`,
+                bankName: sql`excluded.bank_name`,
+                jalaliDueDate: sql`excluded.jalali_due_date`,
+                priority: sql`excluded.priority`,
+                isPinnedTop: sql`excluded.is_pinned_top`,
+                status: sql`excluded.status`,
+                updatedAt: sql`excluded.updated_at`,
+              },
+            });
+        } else {
+          await db.delete(transactions);
         }
       } catch (dbErr) {
         console.warn('Local database sync warning for transactions:', dbErr);
@@ -337,22 +359,42 @@ async function startServer() {
         console.warn('Supabase history sync error:', supaErr);
       }
 
-      // ۲. ذخیره در پایگاه داده لوکال
+      // ۲. ذخیره در پایگاه داده لوکال با استفاده از Upsert
       try {
-        await db.delete(history);
         if (items.length > 0) {
           const insertRows = items.map((h) => ({
-            id: h.id || `hist-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-            action: h.action || 'paid',
-            actionTitle: h.actionTitle || '',
-            timestamp: h.timestamp || new Date().toISOString(),
-            dayOfWeek: h.dayOfWeek || '',
-            jalaliDate: h.jalaliDate || '',
-            time: h.time || '',
-            readableFull: h.readableFull || '',
+            id: String(h.id || `hist-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`),
+            action: String(h.action || 'paid'),
+            actionTitle: String(h.actionTitle || ''),
+            timestamp: String(h.timestamp || new Date().toISOString()),
+            dayOfWeek: String(h.dayOfWeek || ''),
+            jalaliDate: String(h.jalaliDate || ''),
+            time: String(h.time || ''),
+            readableFull: String(h.readableFull || ''),
             transactionData: h.transaction || h.transactionData || {},
           }));
-          await db.insert(history).values(insertRows);
+
+          const ids = insertRows.map((r) => r.id);
+          await db.delete(history).where(notInArray(history.id, ids));
+
+          await db
+            .insert(history)
+            .values(insertRows)
+            .onConflictDoUpdate({
+              target: history.id,
+              set: {
+                action: sql`excluded.action`,
+                actionTitle: sql`excluded.action_title`,
+                timestamp: sql`excluded.timestamp`,
+                dayOfWeek: sql`excluded.day_of_week`,
+                jalaliDate: sql`excluded.jalali_date`,
+                time: sql`excluded.time`,
+                readableFull: sql`excluded.readable_full`,
+                transactionData: sql`excluded.transaction_data`,
+              },
+            });
+        } else {
+          await db.delete(history);
         }
       } catch (dbErr) {
         console.warn('Local database sync warning for history:', dbErr);

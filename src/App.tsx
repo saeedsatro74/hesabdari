@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Transaction, TransactionType, TransactionStatus, HistoryItem } from './types';
 import { INITIAL_TRANSACTIONS, INITIAL_HISTORY } from './data/sampleData';
 import { formatToman } from './utils/numberToPersianWords';
@@ -9,6 +9,7 @@ import { LoginPage } from './components/LoginPage';
 import { LogoutModal } from './components/LogoutModal';
 import { HistoryPage } from './components/HistoryPage';
 import { BackupPage } from './components/BackupPage';
+import { supabase } from './lib/supabase';
 import { 
   Plus, 
   ArrowUp, 
@@ -73,62 +74,156 @@ export default function App() {
     return INITIAL_TRANSACTIONS;
   });
 
-  // بارگذاری داده‌ها از پایگاه‌داده در بدو اجرای برنامه
+  const isInitialLoadDone = useRef(false);
+
+  // بارگذاری داده‌ها از پایگاه‌داده و سوپابیس در بدو اجرای برنامه
   useEffect(() => {
     async function loadDataFromDB() {
+      let loadedTransactions: Transaction[] | null = null;
+      let loadedHistory: HistoryItem[] | null = null;
+
+      // روش ۱: فراخوانی از API سرور (در محیط‌هایی که سرور نود فعال است)
       try {
         const [txRes, histRes] = await Promise.all([
-          fetch('/api/transactions'),
-          fetch('/api/history'),
+          fetch('/api/transactions').catch(() => null),
+          fetch('/api/history').catch(() => null),
         ]);
 
-        if (txRes.ok) {
-          const dbTx = await txRes.json();
-          if (Array.isArray(dbTx) && dbTx.length > 0) {
-            setTransactions(dbTx);
-          } else {
-            // در صورتی که دیتابیس خالی است، ذخیره اولیه در دیتابیس
-            fetch('/api/transactions/sync', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ transactions: INITIAL_TRANSACTIONS }),
-            }).catch(console.error);
+        if (txRes && txRes.ok) {
+          const contentType = txRes.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const dbTx = await txRes.json();
+            if (Array.isArray(dbTx) && dbTx.length > 0) {
+              loadedTransactions = dbTx;
+            }
           }
         }
 
-        if (histRes.ok) {
-          const dbHist = await histRes.json();
-          if (Array.isArray(dbHist) && dbHist.length > 0) {
-            setHistory(dbHist);
-          } else {
-            fetch('/api/history/sync', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ history: INITIAL_HISTORY }),
-            }).catch(console.error);
+        if (histRes && histRes.ok) {
+          const contentType = histRes.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const dbHist = await histRes.json();
+            if (Array.isArray(dbHist) && dbHist.length > 0) {
+              loadedHistory = dbHist;
+            }
           }
         }
       } catch (err) {
-        console.error('Error fetching data from database:', err);
+        console.warn('Server API not responding, using direct Supabase fallback:', err);
+      }
+
+      // روش ۲: اتصال مستقیم به سوپابیس (حیاتی برای هاست‌های استاتیک مثل ورسل)
+      if (!loadedTransactions) {
+        try {
+          const { data: supaTx, error: supaTxErr } = await supabase
+            .from('transactions')
+            .select('*');
+
+          if (!supaTxErr && Array.isArray(supaTx) && supaTx.length > 0) {
+            loadedTransactions = supaTx.map((t: any) => ({
+              id: t.id,
+              type: t.type,
+              fullName: t.full_name || t.fullName,
+              amount: Number(t.amount) || 0,
+              paidAmount: Number(t.paid_amount) || Number(t.paidAmount) || 0,
+              shabaNumber: t.shaba_number || t.shabaNumber || '',
+              cardNumber: t.card_number || t.cardNumber || '',
+              bankName: t.bank_name || t.bankName || '',
+              dueDate: t.due_date || t.dueDate || '',
+              jalaliDueDate: t.jalali_due_date || t.jalaliDueDate || '',
+              priority: t.priority || 'medium',
+              priorityRank: Number(t.priority_rank) || Number(t.priorityRank) || 1,
+              isPinnedTop: Boolean(t.is_pinned_top ?? t.isPinnedTop),
+              status: t.status || 'pending',
+              paymentRecords: t.payment_records || t.paymentRecords || [],
+              createdAt: t.created_at || t.createdAt || new Date().toISOString(),
+              updatedAt: t.updated_at || t.updatedAt || new Date().toISOString(),
+            }));
+          }
+        } catch (supaErr) {
+          console.warn('Direct Supabase fetch error:', supaErr);
+        }
+      }
+
+      if (!loadedHistory) {
+        try {
+          const { data: supaHist, error: supaHistErr } = await supabase
+            .from('history')
+            .select('*');
+
+          if (!supaHistErr && Array.isArray(supaHist) && supaHist.length > 0) {
+            loadedHistory = supaHist.map((h: any) => ({
+              id: h.id,
+              action: h.action,
+              actionTitle: h.action_title || h.actionTitle,
+              timestamp: h.timestamp,
+              dayOfWeek: h.day_of_week || h.dayOfWeek,
+              jalaliDate: h.jalali_date || h.jalaliDate,
+              time: h.time,
+              readableFull: h.readable_full || h.readableFull,
+              transaction: h.transaction_data || h.transactionData || h.transaction,
+            }));
+          }
+        } catch (supaErr) {
+          console.warn('Direct Supabase history fetch error:', supaErr);
+        }
+      }
+
+      if (loadedTransactions && loadedTransactions.length > 0) {
+        setTransactions(loadedTransactions);
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(loadedTransactions));
+        } catch {}
+      }
+
+      if (loadedHistory && loadedHistory.length > 0) {
+        setHistory(loadedHistory);
+        try {
+          localStorage.setItem(HISTORY_KEY, JSON.stringify(loadedHistory));
+        } catch {}
       }
     }
 
-    loadDataFromDB();
+    loadDataFromDB().finally(() => {
+      isInitialLoadDone.current = true;
+    });
   }, []);
 
   useEffect(() => {
+    if (!isInitialLoadDone.current) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(transactions));
     } catch (e) {
       console.error(e);
     }
 
-    // همگام‌سازی لحظه‌ای با دیتابیس
+    // ۱. ارسال به سرور لوکال (در صورت وجود سرور اکسپرس)
     fetch('/api/transactions/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ transactions }),
-    }).catch(console.error);
+    }).catch(() => {});
+
+    // ۲. ارسال مستقیم به سوپابیس برای همگام‌سازی لحظه‌ای در تمام دامنه‌ها و مرورگرها (از جمله ورسل)
+    if (transactions.length > 0) {
+      const supaRows = transactions.map((t) => ({
+        id: t.id,
+        type: t.type,
+        full_name: t.fullName,
+        amount: Number(t.amount) || 0,
+        shaba_number: t.shabaNumber || null,
+        bank_name: t.bankName || null,
+        jalali_due_date: t.jalaliDueDate || '',
+        priority: t.priority || 'medium',
+        is_pinned_top: Boolean(t.isPinnedTop),
+        status: t.status || 'pending',
+        updated_at: new Date().toISOString(),
+      }));
+      supabase
+        .from('transactions')
+        .upsert(supaRows, { onConflict: 'id' })
+        .then(() => {}, () => {});
+    }
   }, [transactions]);
 
   // داده‌های تاریخچه رویدادها و اسناد
@@ -143,18 +238,38 @@ export default function App() {
   });
 
   useEffect(() => {
+    if (!isInitialLoadDone.current) return;
     try {
       localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
     } catch (e) {
       console.error(e);
     }
 
-    // همگام‌سازی لحظه‌ای با دیتابیس
+    // ۱. ارسال به سرور لوکال
     fetch('/api/history/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ history }),
-    }).catch(console.error);
+    }).catch(() => {});
+
+    // ۲. ارسال مستقیم به سوپابیس برای همگام‌سازی تاریخچه در ورسل و سایر دستگاه‌ها
+    if (history.length > 0) {
+      const supaRows = history.map((h) => ({
+        id: h.id,
+        action: h.action,
+        action_title: h.actionTitle,
+        timestamp: h.timestamp,
+        day_of_week: h.dayOfWeek,
+        jalali_date: h.jalaliDate,
+        time: h.time,
+        readable_full: h.readableFull,
+        transaction_data: h.transaction,
+      }));
+      supabase
+        .from('history')
+        .upsert(supaRows, { onConflict: 'id' })
+        .then(() => {}, () => {});
+    }
   }, [history]);
 
   // تب فعال: بدهی، طلب، یا تاریخچه
