@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, doublePrecision } from 'drizzle-orm/pg-core';
 
 // جدول اطلاعات ورود و تنظیمات سیستم
 export const systemAuth = pgTable('system_auth', {
@@ -13,7 +13,7 @@ export const transactions = pgTable('transactions', {
   id: text('id').primaryKey(),
   type: text('type').notNull(), // 'debt' | 'credit'
   fullName: text('full_name').notNull(),
-  amount: integer('amount').notNull(),
+  amount: doublePrecision('amount').notNull(),
   shabaNumber: text('shaba_number'),
   bankName: text('bank_name'),
   jalaliDueDate: text('jalali_due_date').notNull(),

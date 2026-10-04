@@ -227,22 +227,26 @@ async function startServer() {
       }
 
       // ۲. ذخیره در پایگاه داده لوکال
-      await db.delete(transactions);
-      if (items.length > 0) {
-        const insertRows = items.map((t) => ({
-          id: t.id,
-          type: t.type,
-          fullName: t.fullName,
-          amount: Number(t.amount) || 0,
-          shabaNumber: t.shabaNumber || null,
-          bankName: t.bankName || null,
-          jalaliDueDate: t.jalaliDueDate || '',
-          priority: Number(t.priority) || 1,
-          isPinnedTop: Boolean(t.isPinnedTop),
-          status: t.status || 'pending',
-          updatedAt: new Date(),
-        }));
-        await db.insert(transactions).values(insertRows);
+      try {
+        await db.delete(transactions);
+        if (items.length > 0) {
+          const insertRows = items.map((t) => ({
+            id: t.id,
+            type: t.type,
+            fullName: t.fullName,
+            amount: Number(t.amount) || 0,
+            shabaNumber: t.shabaNumber || null,
+            bankName: t.bankName || null,
+            jalaliDueDate: t.jalaliDueDate || '',
+            priority: Number(t.priorityRank) || (typeof t.priority === 'number' ? t.priority : 1),
+            isPinnedTop: Boolean(t.isPinnedTop),
+            status: t.status || 'pending',
+            updatedAt: new Date(),
+          }));
+          await db.insert(transactions).values(insertRows);
+        }
+      } catch (dbErr) {
+        console.warn('Local database sync warning for transactions:', dbErr);
       }
 
       res.json({ success: true, count: items.length });
@@ -334,20 +338,24 @@ async function startServer() {
       }
 
       // ۲. ذخیره در پایگاه داده لوکال
-      await db.delete(history);
-      if (items.length > 0) {
-        const insertRows = items.map((h) => ({
-          id: h.id,
-          action: h.action,
-          actionTitle: h.actionTitle,
-          timestamp: h.timestamp,
-          dayOfWeek: h.dayOfWeek,
-          jalaliDate: h.jalaliDate,
-          time: h.time,
-          readableFull: h.readableFull,
-          transactionData: h.transaction,
-        }));
-        await db.insert(history).values(insertRows);
+      try {
+        await db.delete(history);
+        if (items.length > 0) {
+          const insertRows = items.map((h) => ({
+            id: h.id || `hist-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+            action: h.action || 'paid',
+            actionTitle: h.actionTitle || '',
+            timestamp: h.timestamp || new Date().toISOString(),
+            dayOfWeek: h.dayOfWeek || '',
+            jalaliDate: h.jalaliDate || '',
+            time: h.time || '',
+            readableFull: h.readableFull || '',
+            transactionData: h.transaction || h.transactionData || {},
+          }));
+          await db.insert(history).values(insertRows);
+        }
+      } catch (dbErr) {
+        console.warn('Local database sync warning for history:', dbErr);
       }
 
       res.json({ success: true, count: items.length });
