@@ -4,13 +4,14 @@ import { formatToman } from '../utils/numberToPersianWords';
 import { formatShabaDisplay } from '../utils/shaba';
 import { getCurrentPersianDateTime } from '../utils/dateUtils';
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
+import { toJpeg } from 'html-to-image';
 import { 
   FileDown, 
   Loader2, 
   FileText, 
   CheckCircle2, 
-  AlertCircle 
+  AlertCircle,
+  Printer
 } from 'lucide-react';
 
 interface BackupPageProps {
@@ -75,7 +76,12 @@ export const BackupPage: React.FC<BackupPageProps> = ({
     return deletedHistory.reduce((sum, item) => sum + item.transaction.amount, 0);
   }, [deletedHistory]);
 
-  // تولید و دانلود مستقیم فایل واقعی PDF با html2canvas و jsPDF
+  // چاپ مستقیم یا ذخیره با موتور مرورگر
+  const handlePrint = () => {
+    window.print();
+  };
+
+  // تولید و دانلود مستقیم فایل واقعی PDF با html-to-image و jsPDF
   const handleDownloadPDF = async () => {
     if (!reportRef.current) return;
 
@@ -84,20 +90,25 @@ export const BackupPage: React.FC<BackupPageProps> = ({
       setErrorMessage(null);
       setDownloadSuccess(false);
 
-      // گرفتن عکس با رزولوشن بالا از محتوای برگه گزارش
       const element = reportRef.current;
-      
-      const canvas = await html2canvas(element, {
-        scale: 2, // کیفیت بالا و وضوح شفاف فونت‌ها
-        useCORS: true,
-        logging: false,
+
+      // تبدیل المان به تصویر با پشتیبانی کامل از CSS نوین، فونت‌های فارسی و Tailwind v4
+      const dataUrl = await toJpeg(element, {
+        quality: 0.95,
+        pixelRatio: 2,
         backgroundColor: '#ffffff',
-        windowWidth: 1200,
+        cacheBust: true,
       });
 
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
-      
-      // ساخت سند PDF در ابعاد A4 عمودی
+      // بارگذاری تصویر جهت محاسبه ابعاد دقیق
+      const img = new Image();
+      img.src = dataUrl;
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('بارگذاری تصویر انجام نشد'));
+      });
+
+      // ساخت سند استاندارد PDF در ابعاد A4 عمودی
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -107,20 +118,20 @@ export const BackupPage: React.FC<BackupPageProps> = ({
       const pageWidth = 210; // عرض A4 به میلی‌متر
       const pageHeight = 297; // ارتفاع A4 به میلی‌متر
       const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const imgHeight = (img.height * imgWidth) / img.width;
 
       let heightLeft = imgHeight;
       let position = 0;
 
       // صفحه اول
-      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
+      pdf.addImage(dataUrl, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
       heightLeft -= pageHeight;
 
-      // در صورت طولانی بودن جداول، اضافه کردن صفحات بعدی
+      // صفحات بعدی در صورت طولانی بودن جداول
       while (heightLeft > 0) {
         position = position - pageHeight;
         pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
+        pdf.addImage(dataUrl, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
         heightLeft -= pageHeight;
       }
 
@@ -128,14 +139,28 @@ export const BackupPage: React.FC<BackupPageProps> = ({
       const cleanDate = reportDateTime.jalaliDate.replace(/\//g, '-');
       const filename = `گزارش_جامع_مالی_شرکت_واته_${cleanDate}.pdf`;
 
-      // ذخیره و دانلود مستقیم فایل
-      pdf.save(filename);
+      // روش دانلود مستقیم و مطمئن از طریق Blob
+      const pdfBlob = pdf.output('blob');
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      const downloadLink = document.createElement('a');
+      downloadLink.style.display = 'none';
+      downloadLink.href = blobUrl;
+      downloadLink.download = filename;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+
+      setTimeout(() => {
+        URL.revokeObjectURL(blobUrl);
+        if (downloadLink.parentNode) {
+          downloadLink.parentNode.removeChild(downloadLink);
+        }
+      }, 1000);
 
       setDownloadSuccess(true);
       setTimeout(() => setDownloadSuccess(false), 4000);
     } catch (err: unknown) {
       console.error('Error generating PDF:', err);
-      setErrorMessage('خطایی در تولید فایل PDF رخ داد. لطفاً مجدداً تلاش نمایید.');
+      setErrorMessage('تولید تصویر PDF به مشکل خورد. می‌توانید از دکمه «چاپ / ذخیره مستقیم به عنوان PDF» در کنار آن استفاده کنید.');
     } finally {
       setIsGenerating(false);
     }
@@ -144,7 +169,7 @@ export const BackupPage: React.FC<BackupPageProps> = ({
   return (
     <div className="space-y-6">
       {/* نوار کنترل و دکمه دانلود PDF */}
-      <div className="bg-slate-900 text-white p-5 rounded-2xl shadow-sm space-y-4">
+      <div className="no-print bg-slate-900 text-white p-5 rounded-2xl shadow-sm space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -158,8 +183,18 @@ export const BackupPage: React.FC<BackupPageProps> = ({
             </p>
           </div>
 
-          {/* دکمه اصلی دانلود PDF مستقیم */}
-          <div className="flex items-center gap-2.5">
+          {/* دکمه‌های دانلود PDF و چاپ مستقیم */}
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="flex items-center gap-2 px-4 py-3 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all cursor-pointer shadow-xs"
+              title="چاپ مستقیم یا ذخیره به صورت وکتور با کیفیت نامحدود"
+            >
+              <Printer className="w-4 h-4 text-slate-300" />
+              <span>چاپ مستقیم / ذخیره وکتور PDF</span>
+            </button>
+
             <button
               type="button"
               onClick={handleDownloadPDF}

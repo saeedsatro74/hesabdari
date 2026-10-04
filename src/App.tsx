@@ -6,7 +6,6 @@ import { formatShabaDisplay, getBankFromShaba } from './utils/shaba';
 import { calculateDueStatus, getCurrentPersianDateTime } from './utils/dateUtils';
 import { TransactionModal } from './components/TransactionModal';
 import { LoginPage } from './components/LoginPage';
-import { FactoryResetModal } from './components/FactoryResetModal';
 import { LogoutModal } from './components/LogoutModal';
 import { HistoryPage } from './components/HistoryPage';
 import { BackupPage } from './components/BackupPage';
@@ -166,7 +165,6 @@ export default function App() {
   const [search, setSearch] = useState('');
 
   // پنجره‌های اختصاصی داخل برنامه
-  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<Transaction | null>(null);
 
@@ -398,19 +396,6 @@ export default function App() {
     setActiveTab(restoredItem.type);
   };
 
-  // حذف کارخانه (صفر کردن کامل سیستم شامل تمام بدهی‌ها، طلب‌ها و تاریخچه تراکنش‌ها)
-  const handleConfirmFactoryReset = () => {
-    setTransactions([]);
-    setHistory([]);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
-      localStorage.setItem(HISTORY_KEY, JSON.stringify([]));
-    } catch (e) {
-      console.error(e);
-    }
-    fetch('/api/reset', { method: 'POST' }).catch(console.error);
-  };
-
   // بارگذاری داده‌های نمونه اولیه
   const handleLoadSampleData = () => {
     setTransactions(INITIAL_TRANSACTIONS);
@@ -586,17 +571,6 @@ export default function App() {
                 <span>پشتیبان‌گیری و PDF</span>
               </button>
             </div>
-
-            {/* دکمه حذف کارخانه (صفر کردن همه چیز از جمله تاریخچه) */}
-            <button
-              type="button"
-              onClick={() => setIsResetModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 text-xs font-bold transition-colors cursor-pointer"
-              title="باز کردن پنجره حذف کامل اطلاعات و تاریخچه"
-            >
-              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-              <span>حذف کارخانه (صفر کردن همه)</span>
-            </button>
           </div>
 
           {/* جستجو در لیست اصلی */}
@@ -945,12 +919,6 @@ export default function App() {
         defaultType={activeTab === 'credit' ? 'credit' : 'debt'}
       />
 
-      {/* پنجره تأیید حذف کارخانه */}
-      <FactoryResetModal
-        isOpen={isResetModalOpen}
-        onClose={() => setIsResetModalOpen(false)}
-        onConfirmReset={handleConfirmFactoryReset}
-      />
 
       {/* پنجره تأیید خروج از حساب */}
       <LogoutModal

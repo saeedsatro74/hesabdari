@@ -357,24 +357,7 @@ async function startServer() {
     }
   });
 
-  // 4. حذف کارخانه (صفر کردن کامل داده‌های سوپابیس و دیتابیس)
-  app.post('/api/reset', async (req: Request, res: Response) => {
-    try {
-      try {
-        await supabase.from('transactions').delete().neq('id', '___empty___');
-        await supabase.from('history').delete().neq('id', '___empty___');
-      } catch (supaErr) {
-        console.warn('Supabase reset warning:', supaErr);
-      }
 
-      await db.delete(transactions);
-      await db.delete(history);
-      res.json({ success: true, message: 'کلیه داده‌های پایگاه داده پاکسازی شد' });
-    } catch (err) {
-      console.error('Error resetting database:', err);
-      res.status(500).json({ error: 'Failed to reset database' });
-    }
-  });
 
   // --- Vite Dev & Production Static Serving ---
   if (!isProduction) {
