@@ -4,7 +4,8 @@ import { INITIAL_TRANSACTIONS, INITIAL_HISTORY } from './data/sampleData';
 import { formatToman } from './utils/numberToPersianWords';
 import { formatShabaDisplay, getBankFromShaba } from './utils/shaba';
 import { calculateDueStatus, getCurrentPersianDateTime } from './utils/dateUtils';
-import { TransactionModal } from './components/TransactionModal';
+import { DebtModal } from './components/DebtModal';
+import { CreditModal } from './components/CreditModal';
 import { LoginPage } from './components/LoginPage';
 import { LogoutModal } from './components/LogoutModal';
 import { HistoryPage } from './components/HistoryPage';
@@ -28,6 +29,10 @@ import {
   History, 
   Archive,
   FileDown,
+  AlertTriangle,
+  ArrowRight,
+  CreditCard,
+  Wallet,
   X 
 } from 'lucide-react';
 
@@ -35,7 +40,7 @@ const STORAGE_KEY = 'waateh_simple_v3';
 const HISTORY_KEY = 'waateh_history_v1';
 const AUTH_KEY = 'waateh_auth_v1';
 
-type MainTab = 'debt' | 'credit' | 'history' | 'deleted' | 'backup';
+type ActiveView = 'dashboard' | 'history' | 'deleted' | 'backup';
 type SortField = 'priority' | 'fullName' | 'shaba' | 'amount' | 'dueDate' | 'status';
 type SortDirection = 'asc' | 'desc';
 
@@ -299,9 +304,10 @@ export default function App() {
     }
   }, [history]);
 
-  // تب فعال: بدهی، طلب، یا تاریخچه
-  const [activeTab, setActiveTab] = useState<MainTab>('debt');
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  // نمای فعال: صفحه اصلی دو ستونه، تاریخچه واریز و وصول، سطل زباله، یا پشتیبان‌گیری
+  const [activeView, setActiveView] = useState<ActiveView>('dashboard');
+  const [isDebtModalOpen, setIsDebtModalOpen] = useState(false);
+  const [isCreditModalOpen, setIsCreditModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Transaction | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -360,33 +366,28 @@ export default function App() {
   const deletedCount = useMemo(() => history.filter((h) => h.action === 'deleted').length, [history]);
   const settledCount = useMemo(() => history.filter((h) => h.action === 'paid' || h.action === 'collected').length, [history]);
 
-  // لیست بر اساس تب و فیلتر
-  const currentList = useMemo(() => {
-    if (activeTab === 'history' || activeTab === 'deleted' || activeTab === 'backup') return [];
-
+  // لیست بستانکارها (بدهی‌های ما)
+  const debtList = useMemo(() => {
     return transactions
+      .filter((t) => t.type === 'debt' && t.status !== 'paid')
       .filter((t) => {
-        if (t.type !== activeTab) return false;
-        if (search) {
-          const s = search.toLowerCase();
-          return (
-            t.fullName.toLowerCase().includes(s) ||
-            (t.shabaNumber && t.shabaNumber.toLowerCase().includes(s))
-          );
-        }
-        return true;
+        if (!search) return true;
+        const s = search.toLowerCase();
+        return (
+          t.fullName.toLowerCase().includes(s) ||
+          (t.shabaNumber && t.shabaNumber.toLowerCase().includes(s)) ||
+          String(t.amount).includes(s) ||
+          (t.jalaliDueDate && t.jalaliDueDate.includes(s))
+        );
       })
       .sort((a, b) => {
         let compare = 0;
-
         if (sortField === 'amount') {
           compare = a.amount - b.amount;
         } else if (sortField === 'dueDate') {
-          compare = (a.dueDate || '').localeCompare(b.dueDate || '');
+          compare = (a.jalaliDueDate || '').localeCompare(b.jalaliDueDate || '');
         } else if (sortField === 'fullName') {
           compare = a.fullName.localeCompare(b.fullName, 'fa');
-        } else if (sortField === 'status') {
-          compare = a.status.localeCompare(b.status);
         } else if (sortField === 'shaba') {
           compare = (a.shabaNumber || '').localeCompare(b.shabaNumber || '');
         } else {
@@ -394,10 +395,39 @@ export default function App() {
           if (!a.isPinnedTop && b.isPinnedTop) return 1;
           compare = (a.priorityRank || 0) - (b.priorityRank || 0);
         }
-
         return sortDirection === 'asc' ? compare : -compare;
       });
-  }, [transactions, activeTab, search, sortField, sortDirection]);
+  }, [transactions, search, sortField, sortDirection]);
+
+  // لیست طلب‌های ما (بدهکاران)
+  const creditList = useMemo(() => {
+    return transactions
+      .filter((t) => t.type === 'credit' && t.status !== 'paid')
+      .filter((t) => {
+        if (!search) return true;
+        const s = search.toLowerCase();
+        return (
+          t.fullName.toLowerCase().includes(s) ||
+          String(t.amount).includes(s) ||
+          (t.jalaliDueDate && t.jalaliDueDate.includes(s))
+        );
+      })
+      .sort((a, b) => {
+        let compare = 0;
+        if (sortField === 'amount') {
+          compare = a.amount - b.amount;
+        } else if (sortField === 'dueDate') {
+          compare = (a.jalaliDueDate || '').localeCompare(b.jalaliDueDate || '');
+        } else if (sortField === 'fullName') {
+          compare = a.fullName.localeCompare(b.fullName, 'fa');
+        } else {
+          if (a.isPinnedTop && !b.isPinnedTop) return -1;
+          if (!a.isPinnedTop && b.isPinnedTop) return 1;
+          compare = (a.priorityRank || 0) - (b.priorityRank || 0);
+        }
+        return sortDirection === 'asc' ? compare : -compare;
+      });
+  }, [transactions, search, sortField, sortDirection]);
 
   // تنظیم اولویت برتر
   const handleSetTopPriority = (id: string) => {
@@ -422,43 +452,45 @@ export default function App() {
     });
   };
 
-  // جابجایی ترتیبی به بالا
+  // جابجایی ترتیبی به بالا در همان دسته
   const handleMoveUp = (id: string) => {
     setTransactions((prev) => {
-      const list = [...prev];
-      const index = list.findIndex((t) => t.id === id);
-      if (index <= 0) return prev;
+      const target = prev.find((t) => t.id === id);
+      if (!target) return prev;
+      const sameTypeList = prev.filter((t) => t.type === target.type && t.status !== 'paid');
+      const idx = sameTypeList.findIndex((t) => t.id === id);
+      if (idx <= 0) return prev;
 
-      const curr = list[index];
-      const previous = list[index - 1];
+      const prevItem = sameTypeList[idx - 1];
+      const targetRank = target.priorityRank || idx + 1;
+      const prevRank = prevItem.priorityRank || idx;
 
-      const temp = curr.priorityRank;
-      curr.priorityRank = previous.priorityRank || index;
-      previous.priorityRank = temp || index + 1;
-
-      list[index] = previous;
-      list[index - 1] = curr;
-      return list;
+      return prev.map((t) => {
+        if (t.id === target.id) return { ...t, priorityRank: prevRank };
+        if (t.id === prevItem.id) return { ...t, priorityRank: targetRank };
+        return t;
+      });
     });
   };
 
-  // جابجایی ترتیبی به پایین
+  // جابجایی ترتیبی به پایین در همان دسته
   const handleMoveDown = (id: string) => {
     setTransactions((prev) => {
-      const list = [...prev];
-      const index = list.findIndex((t) => t.id === id);
-      if (index === -1 || index >= list.length - 1) return prev;
+      const target = prev.find((t) => t.id === id);
+      if (!target) return prev;
+      const sameTypeList = prev.filter((t) => t.type === target.type && t.status !== 'paid');
+      const idx = sameTypeList.findIndex((t) => t.id === id);
+      if (idx === -1 || idx >= sameTypeList.length - 1) return prev;
 
-      const curr = list[index];
-      const next = list[index + 1];
+      const nextItem = sameTypeList[idx + 1];
+      const targetRank = target.priorityRank || idx + 1;
+      const nextRank = nextItem.priorityRank || idx + 2;
 
-      const temp = curr.priorityRank;
-      curr.priorityRank = next.priorityRank || index + 2;
-      next.priorityRank = temp || index + 1;
-
-      list[index] = next;
-      list[index + 1] = curr;
-      return list;
+      return prev.map((t) => {
+        if (t.id === target.id) return { ...t, priorityRank: nextRank };
+        if (t.id === nextItem.id) return { ...t, priorityRank: targetRank };
+        return t;
+      });
     });
   };
 
@@ -606,7 +638,7 @@ export default function App() {
       status: 'pending',
     };
     setTransactions((prev) => [restoredItem, ...prev]);
-    setActiveTab(restoredItem.type);
+    setActiveView('dashboard');
 
     const priorityRank = Number(restoredItem.priorityRank) || 1;
     // ارسال به سوپابیس
@@ -630,15 +662,40 @@ export default function App() {
     }
   };
 
-  // بارگذاری داده‌های نمونه اولیه
-  const handleLoadSampleData = () => {
-    setTransactions(INITIAL_TRANSACTIONS);
-    setHistory(INITIAL_HISTORY);
+  // انتقال تراکنش از واریز/وصول به سطل زباله (اسناد حذف‌شده)
+  const handleMoveHistoryToTrash = (historyId: string) => {
+    setHistory((prev) =>
+      prev.map((h) => {
+        if (h.id === historyId) {
+          const actionTitle = h.transaction.type === 'debt' ? 'حذف شده (واریز شده بود)' : 'حذف شده (وصول شده بود)';
+          return {
+            ...h,
+            action: 'deleted',
+            actionTitle,
+          };
+        }
+        return h;
+      })
+    );
+  };
+
+  // حذف قطعی و دائمی یک سند از سطل زباله و سوپابیس
+  const handlePermanentDeleteHistory = async (historyId: string) => {
+    setHistory((prev) => prev.filter((h) => h.id !== historyId));
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_TRANSACTIONS));
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(INITIAL_HISTORY));
+      await supabase.from('history').delete().eq('id', historyId);
     } catch (e) {
-      console.error(e);
+      console.warn('Supabase permanent delete history error:', e);
+    }
+  };
+
+  // تخلیه کامل تمام موارد داخل سطل زباله
+  const handleEmptyTrash = async () => {
+    setHistory((prev) => prev.filter((h) => h.action !== 'deleted'));
+    try {
+      await supabase.from('history').delete().eq('action', 'deleted');
+    } catch (e) {
+      console.warn('Supabase empty trash error:', e);
     }
   };
 
@@ -669,10 +726,10 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-white text-slate-800 p-4 sm:p-6 font-sans">
-      <div className="max-w-6xl mx-auto space-y-4">
-        {/* بالای صفحه: عنوان، خلاصه تراز، دکمه ثبت و دکمه خروج */}
-        <div className="no-print flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
-          <div className="flex items-center gap-2.5">
+      <div className="max-w-[1600px] mx-auto space-y-4">
+        {/* بالای صفحه: عنوان، خلاصه تراز، دکمه‌های کم‌کاربرد در گوشه، و دکمه خروج */}
+        <div className="no-print flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+          <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center font-bold text-xs shadow-xs">
               W
             </div>
@@ -683,40 +740,81 @@ export default function App() {
             </div>
           </div>
 
-          {/* خلاصه ارقام در یک خط جمع‌وجور */}
-          <div className="flex items-center gap-4 text-xs bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl">
+          {/* خلاصه ارقام تراز مالی در یک نگاه */}
+          <div className="flex items-center gap-4 text-xs bg-slate-50 border border-slate-200 px-3.5 py-1.5 rounded-xl">
             <div>
-              <span className="text-slate-500">بدهی ما: </span>
+              <span className="text-slate-500">بدهی ما (بستانکاران): </span>
               <span className="font-bold text-rose-600 font-mono">{formatToman(totalDebts)}</span>
             </div>
             <div className="w-px h-3.5 bg-slate-300" />
             <div>
-              <span className="text-slate-500">طلب ما: </span>
+              <span className="text-slate-500">طلب ما (بدهکاران): </span>
               <span className="font-bold text-emerald-600 font-mono">{formatToman(totalCredits)}</span>
             </div>
             <div className="w-px h-3.5 bg-slate-300" />
             <div>
-              <span className="text-slate-500">تراز: </span>
+              <span className="text-slate-500">تراز کل: </span>
               <span className={`font-bold font-mono ${netBalance >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
                 {formatToman(netBalance)}
               </span>
             </div>
           </div>
 
-          {/* دکمه‌های عملیات بالا */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setEditingItem(null);
-                setIsModalOpen(true);
-              }}
-              className="flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-colors cursor-pointer shadow-xs"
-            >
-              <Plus className="w-4 h-4" />
-              <span>ثبت {activeTab === 'credit' ? 'طلب جدید' : 'بدهی جدید'}</span>
-            </button>
+          {/* گوشه ابزارها: ۳ دکمه کم‌کاربرد (تراکنش‌ها، سطل زباله، پشتیبان) و خروج */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+              <button
+                type="button"
+                onClick={() => setActiveView('history')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                  activeView === 'history'
+                    ? 'bg-white text-blue-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="تاریخچه تراکنش‌های واریز و وصول"
+              >
+                <History className="w-3.5 h-3.5 text-blue-600" />
+                <span>تراکنش‌ها</span>
+                {settledCount > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-blue-100 text-blue-800 font-mono">
+                    {settledCount}
+                  </span>
+                )}
+              </button>
 
+              <button
+                type="button"
+                onClick={() => setActiveView('deleted')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                  activeView === 'deleted'
+                    ? 'bg-white text-rose-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="سطل زباله اسناد حذف‌شده"
+              >
+                <Archive className="w-3.5 h-3.5 text-rose-600" />
+                <span>حذف شده‌ها</span>
+                {deletedCount > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-800 font-mono">
+                    {deletedCount}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveView('backup')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                  activeView === 'backup'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="پشتیبان‌گیری و پایگاه‌داده"
+              >
+                <FileDown className="w-3.5 h-3.5 text-slate-600" />
+                <span>پشتیبان</span>
+              </button>
+            </div>
 
             <button
               type="button"
@@ -730,397 +828,547 @@ export default function App() {
           </div>
         </div>
 
-        {/* سوییچ تب‌ها: بدهی، طلب، تاریخچه تراکنش‌ها، بایگانی حذف‌شده‌ها، و پشتیبان‌گیری */}
-        <div className="no-print flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl w-fit flex-wrap">
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('debt');
-                  setSortField('priority');
-                }}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === 'debt'
-                    ? 'bg-white text-rose-700 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                بدهی‌های شرکت (بستانکاران)
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('credit');
-                  setSortField('priority');
-                }}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === 'credit'
-                    ? 'bg-white text-emerald-700 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                صفحه طلب ما
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('history')}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === 'history'
-                    ? 'bg-white text-blue-700 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <History className="w-3.5 h-3.5 text-blue-600" />
-                <span>تاریخچه واریز و وصول</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-800 font-mono">
-                  {settledCount}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('deleted')}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === 'deleted'
-                    ? 'bg-white text-rose-700 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Archive className="w-3.5 h-3.5 text-rose-600" />
-                <span>بایگانی حذف‌شده‌ها</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-800 font-mono">
-                  {deletedCount}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('backup')}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === 'backup'
-                    ? 'bg-white text-emerald-800 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <FileDown className="w-3.5 h-3.5 text-emerald-600" />
-                <span>پشتیبان‌گیری و PDF</span>
-              </button>
-            </div>
+        {/* نمایش صفحات فرعی (پشتیبان‌گیری، تاریخچه، یا سطل زباله) */}
+        {activeView === 'backup' ? (
+          <div className="space-y-3">
+            <button
+              type="button"
+              onClick={() => setActiveView('dashboard')}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
+            >
+              <ArrowRight className="w-4 h-4" />
+              <span>بازگشت به میز کار (صفحه اصلی بستانکاران و طلب‌ها)</span>
+            </button>
+            <BackupPage transactions={transactions} history={history} />
           </div>
-
-          {/* جستجو در لیست اصلی */}
-          {activeTab !== 'history' && activeTab !== 'deleted' && activeTab !== 'backup' && (
-            <div className="relative w-full sm:w-64">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="جستجو..."
-                className="w-full bg-slate-50 border border-slate-200 focus:border-slate-400 rounded-xl pr-8 pl-3 py-1.5 text-xs text-slate-800 outline-none"
-              />
-            </div>
-          )}
-        </div>
-
-        {/* نمایش صفحه پشتیبان‌گیری، تاریخچه، یا لیست جاری */}
-        {activeTab === 'backup' ? (
-          <BackupPage
-            transactions={transactions}
-            history={history}
-          />
-        ) : activeTab === 'history' || activeTab === 'deleted' ? (
-          <HistoryPage
-            history={history}
-            onRestore={handleRestoreFromHistory}
-            mode={activeTab === 'deleted' ? 'deleted' : 'settled'}
-          />
+        ) : activeView === 'history' || activeView === 'deleted' ? (
+          <div className="space-y-3">
+            <button
+              type="button"
+              onClick={() => setActiveView('dashboard')}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
+            >
+              <ArrowRight className="w-4 h-4" />
+              <span>بازگشت به میز کار (صفحه اصلی بستانکاران و طلب‌ها)</span>
+            </button>
+            <HistoryPage
+              history={history}
+              onRestore={handleRestoreFromHistory}
+              onMoveToTrash={handleMoveHistoryToTrash}
+              onPermanentDelete={handlePermanentDeleteHistory}
+              onEmptyTrash={handleEmptyTrash}
+              mode={activeView === 'deleted' ? 'deleted' : 'settled'}
+            />
+          </div>
         ) : (
+          /* صفحه اصلی: میز کار دو ستونه (بستانکاران یک طرف و طلب‌ها طرف دیگر) */
           <div className="space-y-4">
-            {/* راهنمای کوتاه ستون‌ها */}
-            <div className="text-[11px] text-slate-400 flex items-center justify-between">
-              <span>روی عنوان هر ستون (مانند مبلغ، تاریخ، نام) کلیک کنید تا مثل مای‌کامپیوتر و اکسل اولویت‌بندی و مرتب شود.</span>
-              {sortField !== 'priority' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSortField('priority');
-                    setSortDirection('asc');
-                  }}
-                  className="text-blue-600 hover:underline cursor-pointer"
-                >
-                  بازگشت به ترتیب اولویت دستی
-                </button>
-              )}
+            {/* نوار جستجو و راهنمای مرتب‌سازی */}
+            <div className="no-print flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+              <div className="relative w-full sm:w-96">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="جستجو در بین بستانکاران و طلب‌ها (نام، شبا، مبلغ، سررسید)..."
+                  className="w-full bg-white border border-slate-200 focus:border-slate-400 rounded-xl pr-9 pl-3 py-2 text-xs text-slate-800 outline-none"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
+                <span>روی عنوان هر ستون (اولویت، نام، مبلغ، سررسید) کلیک کنید تا مرتب شود.</span>
+                {sortField !== 'priority' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSortField('priority');
+                      setSortDirection('asc');
+                    }}
+                    className="text-blue-600 hover:underline flex items-center gap-1 font-bold cursor-pointer"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>بازگشت به اولویت دستی</span>
+                  </button>
+                )}
+              </div>
             </div>
 
-            {/* جدول داده‌ها با هدرهای کلیک‌پذیر مشابه مای‌کامپیوتر / اکسل */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
-              <table className="w-full text-xs text-right border-collapse">
-                <thead>
-                  <tr className="bg-slate-50/90 text-slate-700 border-b border-slate-200 select-none">
-                    {/* ستون اولویت */}
-                    <th
-                      onClick={() => handleHeaderClick('priority')}
-                      className={`py-2.5 px-3 text-center w-24 cursor-pointer hover:bg-slate-100 transition-colors group ${
-                        sortField === 'priority' ? 'bg-slate-100 text-slate-900 font-bold' : ''
-                      }`}
-                      title="کلیک برای مرتب‌سازی بر اساس اولویت"
-                    >
-                      <div className="flex items-center justify-center gap-0.5">
-                        <span>اولویت</span>
-                        {renderSortIndicator('priority')}
+            {/* دو تیکه کردن صفحه: بستانکارها در یک ستون و طلب‌های ما در ستون دیگر */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
+              
+              {/* ستون اول: بستانکاران (بدهی‌های شرکت واته) */}
+              <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+                <div className="p-4 bg-rose-50/70 border-b border-rose-100 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-3 h-3 rounded-full bg-rose-500 animate-pulse" />
+                    <div>
+                      <h2 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                        <span>بستانکارها (بدهی‌های ما)</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-white text-rose-700 font-mono border border-rose-200">
+                          {debtList.length} سند
+                        </span>
+                      </h2>
+                      <div className="text-left font-mono font-bold text-rose-600 text-xs sm:text-sm mt-0.5">
+                        مجموع: {formatToman(totalDebts)} تومان
                       </div>
-                    </th>
+                    </div>
+                  </div>
 
-                    {/* ستون نام و نام خانوادگی */}
-                    <th
-                      onClick={() => handleHeaderClick('fullName')}
-                      className={`py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors group ${
-                        sortField === 'fullName' ? 'bg-slate-100 text-slate-900 font-bold' : ''
-                      }`}
-                      title="کلیک برای مرتب‌سازی الفبایی نام"
-                    >
-                      <div className="flex items-center gap-0.5">
-                        <span>نام و نام خانوادگی</span>
-                        {renderSortIndicator('fullName')}
-                      </div>
-                    </th>
+                  {/* دکمه بزرگتر ثبت بدهی */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingItem(null);
+                      setIsDebtModalOpen(true);
+                    }}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs sm:text-sm font-bold transition-all shadow-md hover:shadow-lg active:scale-95 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4 stroke-[3]" />
+                    <span>+ ثبت بدهی جدید</span>
+                  </button>
+                </div>
 
-                    {/* ستون شماره شبا و بانک - فقط در بدهی‌های شرکت */}
-                    {activeTab === 'debt' && (
-                      <th
-                        onClick={() => handleHeaderClick('shaba')}
-                        className={`py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors group ${
-                          sortField === 'shaba' ? 'bg-slate-100 text-slate-900 font-bold' : ''
-                        }`}
-                        title="کلیک برای مرتب‌سازی بر اساس شبا"
-                      >
-                        <div className="flex items-center gap-0.5">
-                          <span>شماره شبا و بانک</span>
-                          {renderSortIndicator('shaba')}
-                        </div>
-                      </th>
-                    )}
-
-                    {/* ستون مبلغ */}
-                    <th
-                      onClick={() => handleHeaderClick('amount')}
-                      className={`py-2.5 px-3 text-left cursor-pointer hover:bg-slate-100 transition-colors group ${
-                        sortField === 'amount' ? 'bg-slate-100 text-slate-900 font-bold' : ''
-                      }`}
-                      title="کلیک برای مرتب‌سازی بر اساس مبلغ"
-                    >
-                      <div className="flex items-center justify-end gap-0.5">
-                        <span>مبلغ (تومان)</span>
-                        {renderSortIndicator('amount')}
-                      </div>
-                    </th>
-
-                    {/* ستون تاریخ پرداخت */}
-                    <th
-                      onClick={() => handleHeaderClick('dueDate')}
-                      className={`py-2.5 px-3 text-center cursor-pointer hover:bg-slate-100 transition-colors group ${
-                        sortField === 'dueDate' ? 'bg-slate-100 text-slate-900 font-bold' : ''
-                      }`}
-                      title="کلیک برای مرتب‌سازی بر اساس تاریخ پرداخت"
-                    >
-                      <div className="flex items-center justify-center gap-0.5">
-                        <span>تاریخ پرداخت</span>
-                        {renderSortIndicator('dueDate')}
-                      </div>
-                    </th>
-
-                    {/* ستون وضعیت */}
-                    <th
-                      onClick={() => handleHeaderClick('status')}
-                      className={`py-2.5 px-3 text-center w-28 cursor-pointer hover:bg-slate-100 transition-colors group ${
-                        sortField === 'status' ? 'bg-slate-100 text-slate-900 font-bold' : ''
-                      }`}
-                      title="کلیک برای مرتب‌سازی بر اساس وضعیت"
-                    >
-                      <div className="flex items-center justify-center gap-0.5">
-                        <span>وضعیت</span>
-                        {renderSortIndicator('status')}
-                      </div>
-                    </th>
-
-                    <th className="py-2.5 px-3 text-center w-20 font-bold">عملیات</th>
-                  </tr>
-                </thead>
-
-                <tbody className="divide-y divide-slate-100">
-                  {currentList.length === 0 ? (
-                    <tr>
-                      <td colSpan={activeTab === 'debt' ? 7 : 6} className="py-12 text-center text-slate-400 text-xs">
-                        موردی ثبت نشده است (سیستم کاملاً صفر است).
-                      </td>
-                    </tr>
-                  ) : (
-                    currentList.map((item, idx) => {
-                      const bank = getBankFromShaba(item.shabaNumber);
-                      const due = calculateDueStatus(item.dueDate);
-                      const isPaid = item.status === 'paid';
-
-                      return (
-                        <tr
-                          key={item.id}
-                          className={`hover:bg-slate-50/80 transition-colors ${
-                            item.isPinnedTop ? 'bg-amber-50/30' : isPaid ? 'bg-slate-50/40 opacity-60' : ''
+                {/* جدول بستانکاران با هدرهای کلیک‌پذیر جهت مرتب‌سازی */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-right border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50/90 text-slate-700 border-b border-slate-200 select-none text-[11px] font-bold">
+                        {/* ستون اولویت */}
+                        <th
+                          onClick={() => handleHeaderClick('priority')}
+                          className={`py-2.5 px-2 text-center w-20 cursor-pointer hover:bg-slate-100 transition-colors group ${
+                            sortField === 'priority' ? 'bg-slate-100 text-slate-900 font-bold' : ''
                           }`}
+                          title="کلیک برای مرتب‌سازی بر اساس اولویت"
                         >
-                          {/* ستون اولویت */}
-                          <td className="py-2.5 px-3 text-center">
-                            <div className="flex items-center justify-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => handleSetTopPriority(item.id)}
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
-                                  item.isPinnedTop
-                                    ? 'bg-slate-900 text-white shadow-xs'
-                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                }`}
-                                title={item.isPinnedTop ? 'اولویت اول برداشته شود' : 'قرار دادن در اولویت اول (اولویت با این است)'}
-                              >
-                                {item.isPinnedTop ? 'اولویت ۱' : `#${idx + 1}`}
-                              </button>
+                          <div className="flex items-center justify-center gap-0.5">
+                            <span>اولویت</span>
+                            {renderSortIndicator('priority')}
+                          </div>
+                        </th>
 
-                              <div className="flex flex-col">
-                                <button
-                                  type="button"
-                                  onClick={() => handleMoveUp(item.id)}
-                                  disabled={idx === 0}
-                                  className="text-slate-300 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
-                                  title="انتقال به بالا"
-                                >
-                                  <ArrowUp className="w-3 h-3" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleMoveDown(item.id)}
-                                  disabled={idx === currentList.length - 1}
-                                  className="text-slate-300 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
-                                  title="انتقال به پایین"
-                                >
-                                  <ArrowDown className="w-3 h-3" />
-                                </button>
-                              </div>
-                            </div>
-                          </td>
+                        {/* ستون بستانکار و شماره شبا */}
+                        <th
+                          onClick={() => handleHeaderClick('fullName')}
+                          className={`py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors group ${
+                            sortField === 'fullName' ? 'bg-slate-100 text-slate-900 font-bold' : ''
+                          }`}
+                          title="کلیک برای مرتب‌سازی بر اساس نام"
+                        >
+                          <div className="flex items-center gap-0.5">
+                            <span>بستانکار و شماره شبا</span>
+                            {renderSortIndicator('fullName')}
+                          </div>
+                        </th>
 
-                          {/* نام و نام خانوادگی */}
-                          <td className="py-2.5 px-3 font-bold text-slate-800">
-                            <div className="flex items-center gap-1.5">
-                              <span>{item.fullName}</span>
-                              {item.isPinnedTop && (
-                                <span className="text-[10px] bg-slate-900 text-white font-bold px-1.5 py-0.2 rounded">
-                                  اولویت اول
-                                </span>
-                              )}
-                            </div>
-                          </td>
+                        {/* ستون مبلغ */}
+                        <th
+                          onClick={() => handleHeaderClick('amount')}
+                          className={`py-2.5 px-3 text-left cursor-pointer hover:bg-slate-100 transition-colors group ${
+                            sortField === 'amount' ? 'bg-slate-100 text-slate-900 font-bold' : ''
+                          }`}
+                          title="کلیک برای مرتب‌سازی بر اساس مبلغ"
+                        >
+                          <div className="flex items-center justify-end gap-0.5">
+                            <span>مبلغ (تومان)</span>
+                            {renderSortIndicator('amount')}
+                          </div>
+                        </th>
 
-                          {/* شماره شبا و بانک - فقط در بدهی‌ها */}
-                          {activeTab === 'debt' && (
-                            <td className="py-2.5 px-3">
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-mono dir-ltr text-[11px] text-slate-700 select-all">
-                                  {formatShabaDisplay(item.shabaNumber) || '—'}
-                                </span>
-                                {item.shabaNumber && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCopyShaba(item.id, item.shabaNumber)}
-                                    className="text-slate-400 hover:text-slate-700 cursor-pointer p-0.5"
-                                    title="کپی شبا"
-                                  >
-                                    {copiedId === item.id ? (
-                                      <Check className="w-3 h-3 text-emerald-600" />
-                                    ) : (
-                                      <Copy className="w-3 h-3" />
-                                    )}
-                                  </button>
-                                )}
-                                {bank && (
-                                  <span className="text-[10px] text-slate-500 font-medium mr-1">
-                                    ({bank.name})
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                          )}
+                        {/* ستون سررسید */}
+                        <th
+                          onClick={() => handleHeaderClick('dueDate')}
+                          className={`py-2.5 px-2 text-center w-28 cursor-pointer hover:bg-slate-100 transition-colors group ${
+                            sortField === 'dueDate' ? 'bg-slate-100 text-slate-900 font-bold' : ''
+                          }`}
+                          title="کلیک برای مرتب‌سازی بر اساس تاریخ پرداخت"
+                        >
+                          <div className="flex items-center justify-center gap-0.5">
+                            <span>سررسید</span>
+                            {renderSortIndicator('dueDate')}
+                          </div>
+                        </th>
 
-                          {/* مبلغ */}
-                          <td className="py-2.5 px-3 text-left font-mono font-bold text-slate-900">
-                            {formatToman(item.amount)}
-                          </td>
-
-                          {/* تاریخ پرداخت */}
-                          <td className="py-2.5 px-3 text-center">
-                            <div className="font-mono text-slate-700">{item.jalaliDueDate}</div>
-                            {!isPaid && (
-                              <div className="text-[10px] text-slate-400 mt-0.5">
-                                {due.badgeText}
-                              </div>
-                            )}
-                          </td>
-
-                          {/* وضعیت واریز / وصول - با کلیک مستقیماً به تاریخچه تراکنش‌ها منتقل می‌شود */}
-                          <td className="py-2.5 px-3 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleSettleItem(item.id)}
-                              className={`px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all cursor-pointer inline-flex items-center gap-1.5 shadow-2xs hover:scale-105 active:scale-95 ${
-                                activeTab === 'debt'
-                                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
-                                  : 'bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100'
-                              }`}
-                              title={
-                                activeTab === 'debt'
-                                  ? 'ثبت واریز و انتقال مستقیم به تاریخچه تراکنش‌ها'
-                                  : 'ثبت وصولی و انتقال مستقیم به تاریخچه تراکنش‌ها'
-                              }
-                            >
-                              <CheckCircle2
-                                className={`w-3.5 h-3.5 ${
-                                  activeTab === 'debt' ? 'text-emerald-600' : 'text-blue-600'
-                                }`}
-                              />
-                              <span>
-                                {activeTab === 'debt' ? 'واریز شد' : 'وصول شد'}
-                              </span>
-                            </button>
-                          </td>
-
-                          {/* عملیات */}
-                          <td className="py-2.5 px-3 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingItem(item);
-                                  setIsModalOpen(true);
-                                }}
-                                className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
-                                title="ویرایش"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setItemToDelete(item)}
-                                className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
-                                title="حذف این مورد (در تاریخچه ذخیره خواهد شد)"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+                        <th className="py-2.5 px-2 text-center w-20">تسویه</th>
+                        <th className="py-2.5 px-2 text-center w-14">عملیات</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {debtList.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-12 text-center text-slate-400 text-xs">
+                            هیچ بدهی بازی ثبت نشده است.
                           </td>
                         </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                      ) : (
+                        debtList.map((item, idx) => {
+                          const bank = getBankFromShaba(item.shabaNumber);
+                          const due = calculateDueStatus(item.dueDate);
+
+                          return (
+                            <tr
+                              key={item.id}
+                              className={`hover:bg-rose-50/20 transition-colors ${
+                                item.isPinnedTop ? 'bg-amber-50/40' : ''
+                              }`}
+                            >
+                              {/* اولویت */}
+                              <td className="py-2.5 px-2 text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSetTopPriority(item.id)}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
+                                      item.isPinnedTop
+                                        ? 'bg-slate-900 text-white shadow-xs'
+                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                    }`}
+                                    title={item.isPinnedTop ? 'برداشتن اولویت ۱' : 'تعیین به عنوان اولویت اول'}
+                                  >
+                                    {item.isPinnedTop ? 'اولویت ۱' : `#${idx + 1}`}
+                                  </button>
+                                  <div className="flex flex-col">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleMoveUp(item.id)}
+                                      disabled={idx === 0}
+                                      className="text-slate-300 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                                      title="جابجایی به بالا"
+                                    >
+                                      <ArrowUp className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleMoveDown(item.id)}
+                                      disabled={idx === debtList.length - 1}
+                                      className="text-slate-300 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                                      title="جابجایی به پایین"
+                                    >
+                                      <ArrowDown className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* بستانکار و شبا */}
+                              <td className="py-2.5 px-3">
+                                <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                                  <span>{item.fullName}</span>
+                                  {item.isPinnedTop && (
+                                    <span className="text-[9px] bg-slate-900 text-white font-bold px-1 py-0.2 rounded">
+                                      اولویت اول
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1 mt-0.5">
+                                  <span className="font-mono dir-ltr text-[10px] text-slate-600 select-all">
+                                    {formatShabaDisplay(item.shabaNumber) || '—'}
+                                  </span>
+                                  {item.shabaNumber && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyShaba(item.id, item.shabaNumber)}
+                                      className="text-slate-400 hover:text-slate-700 cursor-pointer p-0.5"
+                                      title="کپی شماره شبا"
+                                    >
+                                      {copiedId === item.id ? (
+                                        <Check className="w-3 h-3 text-emerald-600" />
+                                      ) : (
+                                        <Copy className="w-3 h-3" />
+                                      )}
+                                    </button>
+                                  )}
+                                  {bank && (
+                                    <span className="text-[10px] text-slate-400">
+                                      ({bank.name})
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* مبلغ */}
+                              <td className="py-2.5 px-3 text-left font-mono font-bold text-rose-600 text-xs">
+                                {formatToman(item.amount)}
+                              </td>
+
+                              {/* سررسید */}
+                              <td className="py-2.5 px-2 text-center">
+                                <div className="font-mono text-slate-700 text-[11px]">{item.jalaliDueDate || '—'}</div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">{due.badgeText}</div>
+                              </td>
+
+                              {/* تسویه (واریز شد) */}
+                              <td className="py-2.5 px-2 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSettleItem(item.id)}
+                                  className="px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer inline-flex items-center gap-1 bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 shadow-2xs"
+                                  title="ثبت واریز و انتقال مستقیم به تاریخچه"
+                                >
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  <span>واریز شد</span>
+                                </button>
+                              </td>
+
+                              {/* عملیات */}
+                              <td className="py-2.5 px-2 text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingItem(item);
+                                      setIsDebtModalOpen(true);
+                                    }}
+                                    className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+                                    title="ویرایش"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setItemToDelete(item)}
+                                    className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                                    title="حذف و انتقال به سطل زباله"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* ستون دوم: طلب‌های ما (بدهکاران به شرکت واته) */}
+              <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+                <div className="p-4 bg-emerald-50/70 border-b border-emerald-100 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
+                    <div>
+                      <h2 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                        <span>طلب‌های ما (بدهکاران)</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-white text-emerald-700 font-mono border border-emerald-200">
+                          {creditList.length} سند
+                        </span>
+                      </h2>
+                      <div className="text-left font-mono font-bold text-emerald-600 text-xs sm:text-sm mt-0.5">
+                        مجموع: {formatToman(totalCredits)} تومان
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* دکمه بزرگتر ثبت طلب */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingItem(null);
+                      setIsCreditModalOpen(true);
+                    }}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold transition-all shadow-md hover:shadow-lg active:scale-95 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4 stroke-[3]" />
+                    <span>+ ثبت طلب جدید</span>
+                  </button>
+                </div>
+
+                {/* جدول طلب‌ها با هدرهای کلیک‌پذیر جهت مرتب‌سازی */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-right border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50/90 text-slate-700 border-b border-slate-200 select-none text-[11px] font-bold">
+                        {/* ستون اولویت */}
+                        <th
+                          onClick={() => handleHeaderClick('priority')}
+                          className={`py-2.5 px-2 text-center w-20 cursor-pointer hover:bg-slate-100 transition-colors group ${
+                            sortField === 'priority' ? 'bg-slate-100 text-slate-900 font-bold' : ''
+                          }`}
+                          title="کلیک برای مرتب‌سازی بر اساس اولویت"
+                        >
+                          <div className="flex items-center justify-center gap-0.5">
+                            <span>اولویت</span>
+                            {renderSortIndicator('priority')}
+                          </div>
+                        </th>
+
+                        {/* ستون نام بدهکار */}
+                        <th
+                          onClick={() => handleHeaderClick('fullName')}
+                          className={`py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors group ${
+                            sortField === 'fullName' ? 'bg-slate-100 text-slate-900 font-bold' : ''
+                          }`}
+                          title="کلیک برای مرتب‌سازی بر اساس نام"
+                        >
+                          <div className="flex items-center gap-0.5">
+                            <span>نام بدهکار (طرف حساب)</span>
+                            {renderSortIndicator('fullName')}
+                          </div>
+                        </th>
+
+                        {/* ستون مبلغ */}
+                        <th
+                          onClick={() => handleHeaderClick('amount')}
+                          className={`py-2.5 px-3 text-left cursor-pointer hover:bg-slate-100 transition-colors group ${
+                            sortField === 'amount' ? 'bg-slate-100 text-slate-900 font-bold' : ''
+                          }`}
+                          title="کلیک برای مرتب‌سازی بر اساس مبلغ"
+                        >
+                          <div className="flex items-center justify-end gap-0.5">
+                            <span>مبلغ (تومان)</span>
+                            {renderSortIndicator('amount')}
+                          </div>
+                        </th>
+
+                        {/* ستون سررسید */}
+                        <th
+                          onClick={() => handleHeaderClick('dueDate')}
+                          className={`py-2.5 px-2 text-center w-28 cursor-pointer hover:bg-slate-100 transition-colors group ${
+                            sortField === 'dueDate' ? 'bg-slate-100 text-slate-900 font-bold' : ''
+                          }`}
+                          title="کلیک برای مرتب‌سازی بر اساس تاریخ وصول"
+                        >
+                          <div className="flex items-center justify-center gap-0.5">
+                            <span>سررسید</span>
+                            {renderSortIndicator('dueDate')}
+                          </div>
+                        </th>
+
+                        <th className="py-2.5 px-2 text-center w-20">تسویه</th>
+                        <th className="py-2.5 px-2 text-center w-14">عملیات</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {creditList.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-12 text-center text-slate-400 text-xs">
+                            هیچ طلب باز یا بدهکاری ثبت نشده است.
+                          </td>
+                        </tr>
+                      ) : (
+                        creditList.map((item, idx) => {
+                          const due = calculateDueStatus(item.dueDate);
+
+                          return (
+                            <tr
+                              key={item.id}
+                              className={`hover:bg-emerald-50/20 transition-colors ${
+                                item.isPinnedTop ? 'bg-amber-50/40' : ''
+                              }`}
+                            >
+                              {/* اولویت */}
+                              <td className="py-2.5 px-2 text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSetTopPriority(item.id)}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
+                                      item.isPinnedTop
+                                        ? 'bg-slate-900 text-white shadow-xs'
+                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                    }`}
+                                    title={item.isPinnedTop ? 'برداشتن اولویت ۱' : 'تعیین به عنوان اولویت اول'}
+                                  >
+                                    {item.isPinnedTop ? 'اولویت ۱' : `#${idx + 1}`}
+                                  </button>
+                                  <div className="flex flex-col">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleMoveUp(item.id)}
+                                      disabled={idx === 0}
+                                      className="text-slate-300 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                                      title="جابجایی به بالا"
+                                    >
+                                      <ArrowUp className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleMoveDown(item.id)}
+                                      disabled={idx === creditList.length - 1}
+                                      className="text-slate-300 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                                      title="جابجایی به پایین"
+                                    >
+                                      <ArrowDown className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* طرف حساب */}
+                              <td className="py-2.5 px-3">
+                                <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                                  <span>{item.fullName}</span>
+                                  {item.isPinnedTop && (
+                                    <span className="text-[9px] bg-slate-900 text-white font-bold px-1 py-0.2 rounded">
+                                      اولویت اول
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">
+                                  سند طلب شرکت واته
+                                </div>
+                              </td>
+
+                              {/* مبلغ */}
+                              <td className="py-2.5 px-3 text-left font-mono font-bold text-emerald-600 text-xs">
+                                {formatToman(item.amount)}
+                              </td>
+
+                              {/* سررسید */}
+                              <td className="py-2.5 px-2 text-center">
+                                <div className="font-mono text-slate-700 text-[11px]">{item.jalaliDueDate || '—'}</div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">{due.badgeText}</div>
+                              </td>
+
+                              {/* تسویه (وصول شد) */}
+                              <td className="py-2.5 px-2 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSettleItem(item.id)}
+                                  className="px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer inline-flex items-center gap-1 bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100 shadow-2xs"
+                                  title="ثبت وصولی و انتقال مستقیم به تاریخچه"
+                                >
+                                  <CheckCircle2 className="w-3 h-3 text-blue-600" />
+                                  <span>وصول شد</span>
+                                </button>
+                              </td>
+
+                              {/* عملیات */}
+                              <td className="py-2.5 px-2 text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingItem(item);
+                                      setIsCreditModalOpen(true);
+                                    }}
+                                    className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+                                    title="ویرایش"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setItemToDelete(item)}
+                                    className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                                    title="حذف و انتقال به سطل زباله"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
             </div>
           </div>
         )}
@@ -1128,29 +1376,29 @@ export default function App() {
         {/* پایین صفحه ساده */}
         <div className="no-print flex items-center justify-between text-[11px] text-slate-400 pt-1">
           <span>شرکت واته • مدیریت هوشمند مالی و تاریخچه</span>
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              onClick={handleLoadSampleData}
-              className="flex items-center gap-1 hover:text-slate-600 cursor-pointer"
-            >
-              <RotateCcw className="w-3 h-3" />
-              <span>بارگذاری نمونه اولیه</span>
-            </button>
-          </div>
         </div>
       </div>
 
-      {/* فرم ثبت و ویرایش */}
-      <TransactionModal
-        isOpen={isModalOpen}
+      {/* پنجره اختصاصی ثبت و ویرایش بدهی */}
+      <DebtModal
+        isOpen={isDebtModalOpen}
         onClose={() => {
-          setIsModalOpen(false);
+          setIsDebtModalOpen(false);
           setEditingItem(null);
         }}
         onSave={handleSave}
         editingTransaction={editingItem}
-        defaultType={activeTab === 'credit' ? 'credit' : 'debt'}
+      />
+
+      {/* پنجره اختصاصی ثبت و ویرایش طلب */}
+      <CreditModal
+        isOpen={isCreditModalOpen}
+        onClose={() => {
+          setIsCreditModalOpen(false);
+          setEditingItem(null);
+        }}
+        onSave={handleSave}
+        editingTransaction={editingItem}
       />
 
 
