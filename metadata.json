@@ -1,0 +1,8 @@
+{
+  "name": "مدیریت بدهکار و بستانکار واته (Waateh)",
+  "description": "سامانه مدیریت بدهی‌ها، مطالبات و طلب‌های شرکت واته با اولویت‌بندی هوشمند، مدیریت شماره شبا و سررسید پرداخت.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
