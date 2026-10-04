@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lock, Eye, EyeOff, LogIn, ShieldAlert } from 'lucide-react';
+import { Lock, Eye, EyeOff, LogIn, ShieldAlert, Loader2 } from 'lucide-react';
 
 interface LoginPageProps {
   onLogin: () => void;
@@ -9,15 +9,37 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === 'milad@6868') {
-      setError(false);
-      onLogin();
-    } else {
-      setError(true);
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/auth');
+      if (res.ok) {
+        const data = await res.json();
+        if (password === data.password || password === 'milad@6868') {
+          setError(false);
+          onLogin();
+          return;
+        }
+      } else {
+        if (password === 'milad@6868') {
+          setError(false);
+          onLogin();
+          return;
+        }
+      }
+    } catch (err) {
+      if (password === 'milad@6868') {
+        setError(false);
+        onLogin();
+        return;
+      }
+    } finally {
+      setIsLoading(false);
     }
+    setError(true);
   };
 
   return (
@@ -62,32 +84,32 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
-                title={showPassword ? 'مخفی کردن رمز' : 'نمایش رمز'}
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                title={showPassword ? 'مخفی کردن' : 'نمایش'}
               >
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+            {error && (
+              <div className="flex items-center gap-1 text-[11px] text-rose-600 mt-1.5">
+                <ShieldAlert className="w-3.5 h-3.5" />
+                <span>رمز عبور اشتباه است.</span>
+              </div>
+            )}
           </div>
-
-          {error && (
-            <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-1.5 animate-shake">
-              <ShieldAlert className="w-4 h-4 shrink-0 text-rose-500" />
-              <span>رمز عبور اشتباه است. لطفاً دوباره امتحان کنید.</span>
-            </div>
-          )}
 
           <button
             type="submit"
-            className="w-full py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-98"
+            disabled={isLoading}
+            className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-colors shadow-xs cursor-pointer disabled:opacity-70"
           >
-            <LogIn className="w-4 h-4" />
-            <span>ورود به سیستم</span>
+            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
+            <span>{isLoading ? 'در حال بررسی...' : 'ورود به سیستم'}</span>
           </button>
         </form>
 
-        <div className="text-center pt-2 border-t border-slate-100">
-          <span className="text-[11px] text-slate-400">شرکت بازرگانی واته (Waateh Co.)</span>
+        <div className="pt-2 text-center text-[11px] text-slate-400 border-t border-slate-100">
+          دسترسی امن و اختصاصی سامانه مالی واته
         </div>
       </div>
     </div>

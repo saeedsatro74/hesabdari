@@ -74,12 +74,62 @@ export default function App() {
     return INITIAL_TRANSACTIONS;
   });
 
+  // بارگذاری داده‌ها از پایگاه‌داده در بدو اجرای برنامه
+  useEffect(() => {
+    async function loadDataFromDB() {
+      try {
+        const [txRes, histRes] = await Promise.all([
+          fetch('/api/transactions'),
+          fetch('/api/history'),
+        ]);
+
+        if (txRes.ok) {
+          const dbTx = await txRes.json();
+          if (Array.isArray(dbTx) && dbTx.length > 0) {
+            setTransactions(dbTx);
+          } else {
+            // در صورتی که دیتابیس خالی است، ذخیره اولیه در دیتابیس
+            fetch('/api/transactions/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ transactions: INITIAL_TRANSACTIONS }),
+            }).catch(console.error);
+          }
+        }
+
+        if (histRes.ok) {
+          const dbHist = await histRes.json();
+          if (Array.isArray(dbHist) && dbHist.length > 0) {
+            setHistory(dbHist);
+          } else {
+            fetch('/api/history/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ history: INITIAL_HISTORY }),
+            }).catch(console.error);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching data from database:', err);
+      }
+    }
+
+    loadDataFromDB();
+  }, []);
+
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(transactions));
     } catch (e) {
       console.error(e);
     }
+
+    // همگام‌سازی لحظه‌ای با دیتابیس
+    fetch('/api/transactions/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transactions }),
+    }).catch(console.error);
   }, [transactions]);
 
   // داده‌های تاریخچه رویدادها و اسناد
@@ -99,6 +149,13 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
+
+    // همگام‌سازی لحظه‌ای با دیتابیس
+    fetch('/api/history/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ history }),
+    }).catch(console.error);
   }, [history]);
 
   // تب فعال: بدهی، طلب، یا تاریخچه
@@ -351,6 +408,7 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
+    fetch('/api/reset', { method: 'POST' }).catch(console.error);
   };
 
   // بارگذاری داده‌های نمونه اولیه
@@ -439,6 +497,7 @@ export default function App() {
               <Plus className="w-4 h-4" />
               <span>ثبت {activeTab === 'credit' ? 'طلب جدید' : 'بدهی جدید'}</span>
             </button>
+
 
             <button
               type="button"
@@ -941,6 +1000,7 @@ export default function App() {
           </div>
         </div>
       )}
+
     </div>
   );
 }
