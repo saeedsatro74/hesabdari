@@ -71,7 +71,7 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-    return INITIAL_TRANSACTIONS;
+    return [];
   });
 
   const isInitialLoadDone = useRef(false);
@@ -93,7 +93,7 @@ export default function App() {
           const contentType = txRes.headers.get('content-type');
           if (contentType && contentType.includes('application/json')) {
             const dbTx = await txRes.json();
-            if (Array.isArray(dbTx) && dbTx.length > 0) {
+            if (Array.isArray(dbTx)) {
               loadedTransactions = dbTx;
             }
           }
@@ -103,7 +103,7 @@ export default function App() {
           const contentType = histRes.headers.get('content-type');
           if (contentType && contentType.includes('application/json')) {
             const dbHist = await histRes.json();
-            if (Array.isArray(dbHist) && dbHist.length > 0) {
+            if (Array.isArray(dbHist)) {
               loadedHistory = dbHist;
             }
           }
@@ -112,14 +112,14 @@ export default function App() {
         console.warn('Server API not responding, using direct Supabase fallback:', err);
       }
 
-      // روش ۲: اتصال مستقیم به سوپابیس (حیاتی برای هاست‌های استاتیک مثل ورسل)
-      if (!loadedTransactions) {
+      // روش ۲: اتصال مستقیم به سوپابیس (حیاتی برای تمام دامنه‌ها از جمله ورسل)
+      if (loadedTransactions === null) {
         try {
           const { data: supaTx, error: supaTxErr } = await supabase
             .from('transactions')
             .select('*');
 
-          if (!supaTxErr && Array.isArray(supaTx) && supaTx.length > 0) {
+          if (!supaTxErr && Array.isArray(supaTx)) {
             loadedTransactions = supaTx.map((t: any) => ({
               id: t.id,
               type: t.type,
@@ -131,8 +131,8 @@ export default function App() {
               bankName: t.bank_name || t.bankName || '',
               dueDate: t.due_date || t.dueDate || '',
               jalaliDueDate: t.jalali_due_date || t.jalaliDueDate || '',
-              priority: t.priority || 'medium',
-              priorityRank: Number(t.priority_rank) || Number(t.priorityRank) || 1,
+              priority: (Number(t.priority) === 1 || t.priority === 'emergency' || t.priority === 'high') ? 'emergency' : t.priority === 3 ? 'low' : 'medium',
+              priorityRank: Number(t.priority) || 1,
               isPinnedTop: Boolean(t.is_pinned_top ?? t.isPinnedTop),
               status: t.status || 'pending',
               paymentRecords: t.payment_records || t.paymentRecords || [],
@@ -145,13 +145,13 @@ export default function App() {
         }
       }
 
-      if (!loadedHistory) {
+      if (loadedHistory === null) {
         try {
           const { data: supaHist, error: supaHistErr } = await supabase
             .from('history')
             .select('*');
 
-          if (!supaHistErr && Array.isArray(supaHist) && supaHist.length > 0) {
+          if (!supaHistErr && Array.isArray(supaHist)) {
             loadedHistory = supaHist.map((h: any) => ({
               id: h.id,
               action: h.action,
@@ -169,14 +169,14 @@ export default function App() {
         }
       }
 
-      if (loadedTransactions && loadedTransactions.length > 0) {
+      if (loadedTransactions !== null) {
         setTransactions(loadedTransactions);
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(loadedTransactions));
         } catch {}
       }
 
-      if (loadedHistory && loadedHistory.length > 0) {
+      if (loadedHistory !== null) {
         setHistory(loadedHistory);
         try {
           localStorage.setItem(HISTORY_KEY, JSON.stringify(loadedHistory));
@@ -197,15 +197,23 @@ export default function App() {
       console.error(e);
     }
 
-    // ۱. ارسال به سرور لوکال (در صورت وجود سرور اکسپرس)
+    // ۱. ارسال به سرور لوکال
     fetch('/api/transactions/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ transactions }),
     }).catch(() => {});
 
-    // ۲. ارسال مستقیم به سوپابیس برای همگام‌سازی لحظه‌ای در تمام دامنه‌ها و مرورگرها (از جمله ورسل)
+    // ۲. ارسال مستقیم و همگام‌سازی لحظه‌ای با سوپابیس
     if (transactions.length > 0) {
+      const activeIds = transactions.map((t) => t.id);
+      // حذف فوری رکوردهایی که کاربر پاک کرده است
+      supabase
+        .from('transactions')
+        .delete()
+        .not('id', 'in', `(${activeIds.map((id) => `"${id}"`).join(',')})`)
+        .then(() => {}, () => {});
+
       const supaRows = transactions.map((t) => ({
         id: t.id,
         type: t.type,
@@ -214,14 +222,33 @@ export default function App() {
         shaba_number: t.shabaNumber || null,
         bank_name: t.bankName || null,
         jalali_due_date: t.jalaliDueDate || '',
-        priority: t.priority || 'medium',
+        priority:
+          Number(t.priorityRank) ||
+          (t.priority === 'emergency' || t.priority === 'high'
+            ? 1
+            : t.priority === 'low'
+            ? 3
+            : 2),
         is_pinned_top: Boolean(t.isPinnedTop),
         status: t.status || 'pending',
         updated_at: new Date().toISOString(),
       }));
+
       supabase
         .from('transactions')
         .upsert(supaRows, { onConflict: 'id' })
+        .then(
+          ({ error }) => {
+            if (error) console.error('Supabase transactions upsert error:', error);
+          },
+          (err) => console.error('Supabase network error:', err)
+        );
+    } else {
+      // اگر تمام تراکنش‌ها پاک شدند
+      supabase
+        .from('transactions')
+        .delete()
+        .neq('id', '__none__')
         .then(() => {}, () => {});
     }
   }, [transactions]);
@@ -234,7 +261,7 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-    return INITIAL_HISTORY;
+    return [];
   });
 
   useEffect(() => {
@@ -252,7 +279,7 @@ export default function App() {
       body: JSON.stringify({ history }),
     }).catch(() => {});
 
-    // ۲. ارسال مستقیم به سوپابیس برای همگام‌سازی تاریخچه در ورسل و سایر دستگاه‌ها
+    // ۲. ارسال مستقیم به سوپابیس برای همگام‌سازی تاریخچه
     if (history.length > 0) {
       const supaRows = history.map((h) => ({
         id: h.id,
@@ -444,7 +471,7 @@ export default function App() {
   };
 
   // ثبت تسویه (واریز یا وصول) و انتقال مستقیم به تاریخچه تراکنش‌ها
-  const handleSettleItem = (id: string) => {
+  const handleSettleItem = async (id: string) => {
     const item = transactions.find((t) => t.id === id);
     if (!item) return;
 
@@ -456,26 +483,71 @@ export default function App() {
 
     // خارج کردن از لیست بازها
     setTransactions((prev) => prev.filter((t) => t.id !== id));
+
+    // حذف قطعی از سوپابیس و سرور
+    supabase.from('transactions').delete().eq('id', id).then(() => {}, () => {});
+    fetch(`/api/transactions/${id}`, { method: 'DELETE' }).catch(() => {});
   };
 
   // ذخیره سند جدید یا ویرایش شده
-  const handleSave = (
+  const handleSave = async (
     data: Omit<Transaction, 'id' | 'paymentRecords' | 'createdAt' | 'updatedAt'>,
     id?: string
   ) => {
-    const now = new Date().toISOString().split('T')[0];
+    const now = new Date().toISOString();
+    const priorityRank =
+      Number(data.priorityRank) ||
+      (data.priority === 'emergency' || data.priority === 'high'
+        ? 1
+        : data.priority === 'low'
+        ? 3
+        : 2);
+
     if (id) {
-      setTransactions((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, ...data, updatedAt: now } : t))
-      );
+      const existing = transactions.find((t) => t.id === id);
+      const updatedItem: Transaction = {
+        ...data,
+        id,
+        priorityRank,
+        paymentRecords: existing?.paymentRecords || [],
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+      };
+
+      setTransactions((prev) => prev.map((t) => (t.id === id ? updatedItem : t)));
+
+      // ارسال مستقیم به سوپابیس
+      try {
+        await supabase.from('transactions').upsert(
+          {
+            id,
+            type: updatedItem.type,
+            full_name: updatedItem.fullName,
+            amount: Number(updatedItem.amount) || 0,
+            shaba_number: updatedItem.shabaNumber || null,
+            bank_name: updatedItem.bankName || null,
+            jalali_due_date: updatedItem.jalaliDueDate || '',
+            priority: priorityRank,
+            is_pinned_top: Boolean(updatedItem.isPinnedTop),
+            status: updatedItem.status || 'pending',
+            updated_at: now,
+          },
+          { onConflict: 'id' }
+        );
+      } catch (err) {
+        console.warn('Supabase direct update error:', err);
+      }
     } else {
+      const newId = `tx-${Date.now()}`;
       const newItem: Transaction = {
         ...data,
-        id: `tx-${Date.now()}`,
+        id: newId,
+        priorityRank,
         paymentRecords: [],
         createdAt: now,
         updatedAt: now,
       };
+
       if (data.isPinnedTop) {
         setTransactions((prev) => [
           newItem,
@@ -484,31 +556,78 @@ export default function App() {
       } else {
         setTransactions((prev) => [...prev, newItem]);
       }
+
+      // ارسال مستقیم به سوپابیس
+      try {
+        await supabase.from('transactions').insert({
+          id: newId,
+          type: newItem.type,
+          full_name: newItem.fullName,
+          amount: Number(newItem.amount) || 0,
+          shaba_number: newItem.shabaNumber || null,
+          bank_name: newItem.bankName || null,
+          jalali_due_date: newItem.jalaliDueDate || '',
+          priority: priorityRank,
+          is_pinned_top: Boolean(newItem.isPinnedTop),
+          status: newItem.status || 'pending',
+          created_at: now,
+          updated_at: now,
+        });
+      } catch (err) {
+        console.warn('Supabase direct insert error:', err);
+      }
     }
   };
 
   // حذف مورد انتخابی با ثبت دائمی در تاریخچه
-  const confirmDeleteItem = () => {
+  const confirmDeleteItem = async () => {
     if (!itemToDelete) return;
+    const targetId = itemToDelete.id;
 
     // ثبت در تاریخچه به عنوان حذف شده با روز، تاریخ و ساعت دقیق
     const actionTitle = itemToDelete.type === 'debt' ? 'حذف شده (بدهی ما)' : 'حذف شده (طلب ما)';
     addToHistory('deleted', actionTitle, itemToDelete);
 
     // حذف از لیست جاری
-    setTransactions((prev) => prev.filter((t) => t.id !== itemToDelete.id));
+    setTransactions((prev) => prev.filter((t) => t.id !== targetId));
     setItemToDelete(null);
+
+    // حذف فوری و قطعی از سوپابیس و سرور
+    supabase.from('transactions').delete().eq('id', targetId).then(() => {}, () => {});
+    fetch(`/api/transactions/${targetId}`, { method: 'DELETE' }).catch(() => {});
   };
 
   // بازیابی سند از تاریخچه به لیست فعال
-  const handleRestoreFromHistory = (historyItem: HistoryItem) => {
+  const handleRestoreFromHistory = async (historyItem: HistoryItem) => {
+    const newId = `tx-restored-${Date.now()}`;
     const restoredItem: Transaction = {
       ...historyItem.transaction,
-      id: `tx-restored-${Date.now()}`,
+      id: newId,
       status: 'pending',
     };
     setTransactions((prev) => [restoredItem, ...prev]);
     setActiveTab(restoredItem.type);
+
+    const priorityRank = Number(restoredItem.priorityRank) || 1;
+    // ارسال به سوپابیس
+    try {
+      await supabase.from('transactions').insert({
+        id: newId,
+        type: restoredItem.type,
+        full_name: restoredItem.fullName,
+        amount: Number(restoredItem.amount) || 0,
+        shaba_number: restoredItem.shabaNumber || null,
+        bank_name: restoredItem.bankName || null,
+        jalali_due_date: restoredItem.jalaliDueDate || '',
+        priority: priorityRank,
+        is_pinned_top: Boolean(restoredItem.isPinnedTop),
+        status: 'pending',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn('Supabase restore insert error:', e);
+    }
   };
 
   // بارگذاری داده‌های نمونه اولیه

@@ -204,6 +204,13 @@ async function startServer() {
       // ۱. همگام‌سازی با سوپابیس
       try {
         if (items.length > 0) {
+          const itemIds = items.map((t) => t.id);
+          // حذف رکوردهایی از سوپابیس که توسط کاربر پاک شده‌اند
+          await supabase
+            .from('transactions')
+            .delete()
+            .not('id', 'in', `(${itemIds.map((id) => `"${id}"`).join(',')})`);
+
           const supaRows = items.map((t) => ({
             id: t.id,
             type: t.type,
@@ -212,7 +219,7 @@ async function startServer() {
             shaba_number: t.shabaNumber || null,
             bank_name: t.bankName || null,
             jalali_due_date: t.jalaliDueDate || '',
-            priority: Number(t.priority) || 1,
+            priority: Number(t.priorityRank) || (typeof t.priority === 'number' ? t.priority : 1),
             is_pinned_top: Boolean(t.isPinnedTop),
             status: t.status || 'pending',
             updated_at: new Date().toISOString(),
@@ -226,6 +233,8 @@ async function startServer() {
           if (upsertErr) {
             console.warn('Supabase transactions upsert warning:', upsertErr.message);
           }
+        } else {
+          await supabase.from('transactions').delete().neq('id', '__none__');
         }
       } catch (supaErr) {
         console.warn('Supabase sync transactions error:', supaErr);
@@ -280,6 +289,29 @@ async function startServer() {
     } catch (err) {
       console.error('Error syncing transactions:', err);
       res.status(500).json({ error: 'Failed to sync transactions' });
+    }
+  });
+
+  // حذف قطعی تراکنش از دیتابیس
+  app.delete('/api/transactions/:id', async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      // حذف از سوپابیس
+      try {
+        await supabase.from('transactions').delete().eq('id', id);
+      } catch (e) {
+        console.warn('Supabase delete error:', e);
+      }
+      // حذف از دیتابیس لوکال
+      try {
+        await db.delete(transactions).where(eq(transactions.id, id));
+      } catch (e) {
+        console.warn('Local db delete error:', e);
+      }
+      res.json({ success: true, id });
+    } catch (err) {
+      console.error('Error deleting transaction:', err);
+      res.status(500).json({ error: 'Failed to delete transaction' });
     }
   });
 
