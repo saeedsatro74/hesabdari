@@ -75,6 +75,12 @@ async function startServer() {
           .limit(1);
 
         if (!supaErr && supaAuth && supaAuth.length > 0) {
+          // هماهنگ‌سازی پایگاه داده محلی با مقدار جدید سوپابیس
+          db.update(systemAuth)
+            .set({ password: supaAuth[0].password, updatedAt: new Date() })
+            .where(eq(systemAuth.id, 1))
+            .catch(() => {});
+
           return res.json({
             username: supaAuth[0].username,
             password: supaAuth[0].password,
@@ -87,14 +93,13 @@ async function startServer() {
       // در غیر این صورت خواندن از دیتابیس لوکال
       const records = await db.select().from(systemAuth).limit(1);
       if (records.length > 0) {
-        res.json({
+        return res.json({
           username: records[0].username,
           password: records[0].password,
         });
-      } else {
-        await db.insert(systemAuth).values({ username: 'admin', password: 'milad@6868' });
-        res.json({ username: 'admin', password: 'milad@6868' });
       }
+
+      return res.status(404).json({ error: 'اطلاعات ورود یافت نشد' });
     } catch (err) {
       console.error('Error fetching auth credentials:', err);
       res.status(500).json({ error: 'Failed to fetch auth credentials' });

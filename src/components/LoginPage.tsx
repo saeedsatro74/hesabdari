@@ -1,8 +1,18 @@
 import React, { useState } from 'react';
-import { Lock, Eye, EyeOff, LogIn, ShieldAlert, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, LogIn, ShieldAlert, Loader2 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 interface LoginPageProps {
   onLogin: () => void;
+}
+
+// نرمال‌سازی اعداد فارسی و عربی به انگلیسی برای جلوگیری از خطای کیبورد
+function normalizeDigits(str: string): string {
+  if (!str) return '';
+  return str
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .trim();
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
@@ -14,31 +24,55 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError(false);
+
+    const enteredClean = normalizeDigits(password);
+
     try {
+      // ۱. بررسی مستقیم و فوری از جدول system_auth در سوپابیس
+      try {
+        const { data: supaAuth, error: supaErr } = await supabase
+          .from('system_auth')
+          .select('password, username');
+
+        if (!supaErr && Array.isArray(supaAuth) && supaAuth.length > 0) {
+          const isMatch = supaAuth.some((row) => {
+            if (!row?.password) return false;
+            return normalizeDigits(String(row.password)) === enteredClean;
+          });
+
+          if (isMatch) {
+            setError(false);
+            onLogin();
+            return;
+          } else {
+            setError(true);
+            return;
+          }
+        }
+      } catch (supaErr) {
+        console.warn('Supabase auth direct check warning, trying backend API:', supaErr);
+      }
+
+      // ۲. در صورتی که اتصال مستقیم به سوپابیس با خطای شبکه مواجه شد، بررسی از طریق API سرور
       const res = await fetch('/api/auth');
       if (res.ok) {
-        const data = await res.json();
-        if (password === data.password || password === 'milad@6868') {
-          setError(false);
-          onLogin();
-          return;
-        }
-      } else {
-        if (password === 'milad@6868') {
-          setError(false);
-          onLogin();
-          return;
+        const contentType = res.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const data = await res.json();
+          if (data && data.password && normalizeDigits(String(data.password)) === enteredClean) {
+            setError(false);
+            onLogin();
+            return;
+          }
         }
       }
     } catch (err) {
-      if (password === 'milad@6868') {
-        setError(false);
-        onLogin();
-        return;
-      }
+      console.error('Login verification error:', err);
     } finally {
       setIsLoading(false);
     }
+
     setError(true);
   };
 
@@ -93,7 +127,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
             {error && (
               <div className="flex items-center gap-1 text-[11px] text-rose-600 mt-1.5">
                 <ShieldAlert className="w-3.5 h-3.5" />
-                <span>رمز عبور اشتباه است.</span>
+                <span>رمز عبور اشتباه است. لطفاً زبان کیبورد را نیز بررسی کنید.</span>
               </div>
             )}
           </div>
