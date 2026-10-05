@@ -10,7 +10,7 @@ import { LoginPage } from './components/LoginPage';
 import { LogoutModal } from './components/LogoutModal';
 import { HistoryPage } from './components/HistoryPage';
 import { BackupPage } from './components/BackupPage';
-import { supabase } from './lib/supabase';
+import { supabase, safeSupabaseUpsertTransactions, safeSupabaseInsertTransaction } from './lib/supabase';
 import { 
   Plus, 
   ArrowUp, 
@@ -225,6 +225,7 @@ export default function App() {
         id: t.id,
         type: t.type,
         full_name: t.fullName,
+        is_official: Boolean(t.isOfficial),
         amount: Number(t.amount) || 0,
         shaba_number: t.shabaNumber || null,
         bank_name: t.bankName || null,
@@ -241,15 +242,11 @@ export default function App() {
         updated_at: new Date().toISOString(),
       }));
 
-      supabase
-        .from('transactions')
-        .upsert(supaRows, { onConflict: 'id' })
-        .then(
-          ({ error }) => {
-            if (error) console.error('Supabase transactions upsert error:', error);
-          },
-          (err) => console.error('Supabase network error:', err)
-        );
+      safeSupabaseUpsertTransactions(supaRows).then(
+        ({ error }) => {
+          if (error) console.error('Supabase transactions upsert error:', error);
+        }
+      );
     } else {
       // اگر تمام تراکنش‌ها پاک شدند
       supabase
@@ -552,11 +549,12 @@ export default function App() {
 
       // ارسال مستقیم به سوپابیس
       try {
-        await supabase.from('transactions').upsert(
+        await safeSupabaseUpsertTransactions([
           {
             id,
             type: updatedItem.type,
             full_name: updatedItem.fullName,
+            is_official: Boolean(updatedItem.isOfficial),
             amount: Number(updatedItem.amount) || 0,
             shaba_number: updatedItem.shabaNumber || null,
             bank_name: updatedItem.bankName || null,
@@ -565,9 +563,8 @@ export default function App() {
             is_pinned_top: Boolean(updatedItem.isPinnedTop),
             status: `${updatedItem.status || 'pending'}#${updatedItem.isOfficial ? 'official' : 'unofficial'}`,
             updated_at: now,
-          },
-          { onConflict: 'id' }
-        );
+          }
+        ]);
       } catch (err) {
         console.warn('Supabase direct update error:', err);
       }
@@ -593,10 +590,11 @@ export default function App() {
 
       // ارسال مستقیم به سوپابیس
       try {
-        await supabase.from('transactions').insert({
+        await safeSupabaseInsertTransaction({
           id: newId,
           type: newItem.type,
           full_name: newItem.fullName,
+          is_official: Boolean(newItem.isOfficial),
           amount: Number(newItem.amount) || 0,
           shaba_number: newItem.shabaNumber || null,
           bank_name: newItem.bankName || null,
@@ -627,8 +625,12 @@ export default function App() {
     setItemToDelete(null);
 
     // حذف فوری و قطعی از سوپابیس و سرور
-    supabase.from('transactions').delete().eq('id', targetId).then(() => {}, () => {});
-    fetch(`/api/transactions/${targetId}`, { method: 'DELETE' }).catch(() => {});
+    try {
+      await supabase.from('transactions').delete().eq('id', targetId);
+      await fetch(`/api/transactions/${targetId}`, { method: 'DELETE' }).catch(() => {});
+    } catch (e) {
+      console.warn('Delete transaction error:', e);
+    }
   };
 
   // بازیابی سند از تاریخچه به لیست فعال
@@ -645,10 +647,11 @@ export default function App() {
     const priorityRank = Number(restoredItem.priorityRank) || 1;
     // ارسال به سوپابیس
     try {
-      await supabase.from('transactions').insert({
+      await safeSupabaseInsertTransaction({
         id: newId,
         type: restoredItem.type,
         full_name: restoredItem.fullName,
+        is_official: Boolean(restoredItem.isOfficial),
         amount: Number(restoredItem.amount) || 0,
         shaba_number: restoredItem.shabaNumber || null,
         bank_name: restoredItem.bankName || null,
@@ -686,6 +689,7 @@ export default function App() {
     setHistory((prev) => prev.filter((h) => h.id !== historyId));
     try {
       await supabase.from('history').delete().eq('id', historyId);
+      await fetch(`/api/history/${historyId}`, { method: 'DELETE' }).catch(() => {});
     } catch (e) {
       console.warn('Supabase permanent delete history error:', e);
     }
@@ -696,6 +700,7 @@ export default function App() {
     setHistory((prev) => prev.filter((h) => h.action !== 'deleted'));
     try {
       await supabase.from('history').delete().eq('action', 'deleted');
+      await fetch('/api/history-trash/clear', { method: 'DELETE' }).catch(() => {});
     } catch (e) {
       console.warn('Supabase empty trash error:', e);
     }

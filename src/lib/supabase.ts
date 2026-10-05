@@ -15,3 +15,23 @@ const supabaseKey =
   DEFAULT_ANON_KEY;
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
+
+// توابع کمکی برای ذخیره امن در سوپابیس با پشتیبانی خودکار از وجود یا عدم وجود ستون is_official
+export async function safeSupabaseUpsertTransactions(rows: any[]) {
+  if (!rows || rows.length === 0) return { error: null };
+  const { error } = await supabase.from('transactions').upsert(rows, { onConflict: 'id' });
+  if (error && (error.message?.includes('is_official') || error.code === 'PGRST204')) {
+    const fallbackRows = rows.map(({ is_official, ...rest }) => rest);
+    return await supabase.from('transactions').upsert(fallbackRows, { onConflict: 'id' });
+  }
+  return { error };
+}
+
+export async function safeSupabaseInsertTransaction(row: any) {
+  const { error } = await supabase.from('transactions').insert(row);
+  if (error && (error.message?.includes('is_official') || error.code === 'PGRST204')) {
+    const { is_official, ...fallbackRow } = row;
+    return await supabase.from('transactions').insert(fallbackRow);
+  }
+  return { error };
+}

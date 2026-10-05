@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
 import existsSync from 'fs';
 import dotenv from 'dotenv';
-import { supabase } from './src/lib/supabase.ts';
+import { supabase, safeSupabaseUpsertTransactions } from './src/lib/supabase.ts';
 import { INITIAL_TRANSACTIONS, INITIAL_HISTORY } from './src/data/sampleData.ts';
 
 dotenv.config();
@@ -254,6 +254,7 @@ async function startServer() {
             id: t.id,
             type: t.type,
             full_name: t.fullName,
+            is_official: Boolean(t.isOfficial),
             amount: Number(t.amount) || 0,
             shaba_number: t.shabaNumber || null,
             bank_name: t.bankName || null,
@@ -264,15 +265,19 @@ async function startServer() {
             updated_at: new Date().toISOString(),
           }));
 
-          supabase
-            .from('transactions')
-            .upsert(supaRows, { onConflict: 'id' })
-            .then(
-              () => {},
-              (err) => console.warn('Supabase transactions upsert warning:', err)
-            );
+          await safeSupabaseUpsertTransactions(supaRows);
+
+          // حذف رکوردهایی که در لیست جدید وجود ندارند تا مجدداً بازنگردند
+          const { data: existingRows } = await supabase.from('transactions').select('id');
+          if (existingRows && existingRows.length > 0) {
+            const activeIds = new Set(items.map((t) => t.id));
+            const toDelete = existingRows.filter((r: any) => !activeIds.has(r.id)).map((r: any) => r.id);
+            if (toDelete.length > 0) {
+              await supabase.from('transactions').delete().in('id', toDelete);
+            }
+          }
         } else {
-          supabase.from('transactions').delete().neq('id', '__none__').then(() => {}, () => {});
+          await supabase.from('transactions').delete().neq('id', '__none__');
         }
       } catch (supaErr) {
         console.warn('Supabase sync transactions error:', supaErr);
@@ -296,7 +301,7 @@ async function startServer() {
       await writeTransactionsFile(updated);
 
       // ۲. حذف از سوپابیس
-      supabase.from('transactions').delete().eq('id', id).then(() => {}, () => {});
+      await supabase.from('transactions').delete().eq('id', id);
 
       res.json({ success: true, id });
     } catch (err) {
@@ -367,10 +372,19 @@ async function startServer() {
             transaction_data: h.transaction || h.transactionData || {},
           }));
 
-          supabase
-            .from('history')
-            .upsert(supaRows, { onConflict: 'id' })
-            .then(() => {}, (err) => console.warn('Supabase history upsert warning:', err));
+          await supabase.from('history').upsert(supaRows, { onConflict: 'id' });
+
+          // حذف رکوردهایی از سوپابیس که کاربر از تاریخچه یا سطل زباله پاک کرده است
+          const { data: existingHist } = await supabase.from('history').select('id');
+          if (existingHist && existingHist.length > 0) {
+            const activeHistIds = new Set(items.map((h) => h.id));
+            const toDeleteHist = existingHist.filter((r: any) => !activeHistIds.has(r.id)).map((r: any) => r.id);
+            if (toDeleteHist.length > 0) {
+              await supabase.from('history').delete().in('id', toDeleteHist);
+            }
+          }
+        } else {
+          await supabase.from('history').delete().neq('id', '__none__');
         }
       } catch (supaErr) {
         console.warn('Supabase history sync error:', supaErr);
@@ -380,6 +394,35 @@ async function startServer() {
     } catch (err) {
       console.error('Error syncing history:', err);
       res.status(500).json({ error: 'Failed to sync history' });
+    }
+  });
+
+  // حذف قطعی یک آیتم از تاریخچه یا سطل زباله
+  app.delete('/api/history/:id', async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const current = await readHistoryFile();
+      const updated = current.filter((h: any) => h.id !== id);
+      await writeHistoryFile(updated);
+      await supabase.from('history').delete().eq('id', id);
+      res.json({ success: true, id });
+    } catch (err) {
+      console.error('Error deleting history item:', err);
+      res.status(500).json({ error: 'Failed to delete history item' });
+    }
+  });
+
+  // تخلیه کامل تمام موارد سطل زباله
+  app.delete('/api/history-trash/clear', async (req: Request, res: Response) => {
+    try {
+      const current = await readHistoryFile();
+      const updated = current.filter((h: any) => h.action !== 'deleted');
+      await writeHistoryFile(updated);
+      await supabase.from('history').delete().eq('action', 'deleted');
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Error clearing trash:', err);
+      res.status(500).json({ error: 'Failed to clear trash' });
     }
   });
 
