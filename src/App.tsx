@@ -128,26 +128,32 @@ export default function App() {
             .select('*');
 
           if (!supaTxErr && Array.isArray(supaTx)) {
-            loadedTransactions = supaTx.map((t: any) => ({
-              id: t.id,
-              type: t.type,
-              fullName: t.full_name || t.fullName,
-              isOfficial: Boolean(t.is_official ?? t.isOfficial),
-              amount: Number(t.amount) || 0,
-              paidAmount: Number(t.paid_amount) || Number(t.paidAmount) || 0,
-              shabaNumber: t.shaba_number || t.shabaNumber || '',
-              cardNumber: t.card_number || t.cardNumber || '',
-              bankName: t.bank_name || t.bankName || '',
-              dueDate: t.due_date || t.dueDate || '',
-              jalaliDueDate: t.jalali_due_date || t.jalaliDueDate || '',
-              priority: (Number(t.priority) === 1 || t.priority === 'emergency' || t.priority === 'high') ? 'emergency' : t.priority === 3 ? 'low' : 'medium',
-              priorityRank: Number(t.priority) || 1,
-              isPinnedTop: Boolean(t.is_pinned_top ?? t.isPinnedTop),
-              status: t.status || 'pending',
-              paymentRecords: t.payment_records || t.paymentRecords || [],
-              createdAt: t.created_at || t.createdAt || new Date().toISOString(),
-              updatedAt: t.updated_at || t.updatedAt || new Date().toISOString(),
-            }));
+            loadedTransactions = supaTx.map((t: any) => {
+              const rawStatus = t.status || 'pending';
+              const isOfficial = rawStatus.includes('#official') || rawStatus.includes(':official') || Boolean(t.is_official ?? t.isOfficial);
+              const cleanStatus = (rawStatus.split('#')[0].split(':')[0] || 'pending') as TransactionStatus;
+
+              return {
+                id: t.id,
+                type: t.type,
+                fullName: t.full_name || t.fullName,
+                isOfficial,
+                amount: Number(t.amount) || 0,
+                paidAmount: Number(t.paid_amount) || Number(t.paidAmount) || 0,
+                shabaNumber: t.shaba_number || t.shabaNumber || '',
+                cardNumber: t.card_number || t.cardNumber || '',
+                bankName: t.bank_name || t.bankName || '',
+                dueDate: t.due_date || t.dueDate || '',
+                jalaliDueDate: t.jalali_due_date || t.jalaliDueDate || '',
+                priority: (Number(t.priority) === 1 || t.priority === 'emergency' || t.priority === 'high') ? 'emergency' : t.priority === 3 ? 'low' : 'medium',
+                priorityRank: Number(t.priority) || 1,
+                isPinnedTop: Boolean(t.is_pinned_top ?? t.isPinnedTop),
+                status: cleanStatus,
+                paymentRecords: t.payment_records || t.paymentRecords || [],
+                createdAt: t.created_at || t.createdAt || new Date().toISOString(),
+                updatedAt: t.updated_at || t.updatedAt || new Date().toISOString(),
+              };
+            });
           }
         } catch (supaErr) {
           console.warn('Direct Supabase fetch error:', supaErr);
@@ -215,19 +221,10 @@ export default function App() {
 
     // ۲. ارسال مستقیم و همگام‌سازی لحظه‌ای با سوپابیس
     if (transactions.length > 0) {
-      const activeIds = transactions.map((t) => t.id);
-      // حذف فوری رکوردهایی که کاربر پاک کرده است
-      supabase
-        .from('transactions')
-        .delete()
-        .not('id', 'in', `(${activeIds.map((id) => `"${id}"`).join(',')})`)
-        .then(() => {}, () => {});
-
       const supaRows = transactions.map((t) => ({
         id: t.id,
         type: t.type,
         full_name: t.fullName,
-        is_official: Boolean(t.isOfficial),
         amount: Number(t.amount) || 0,
         shaba_number: t.shabaNumber || null,
         bank_name: t.bankName || null,
@@ -240,7 +237,7 @@ export default function App() {
             ? 3
             : 2),
         is_pinned_top: Boolean(t.isPinnedTop),
-        status: t.status || 'pending',
+        status: `${t.status || 'pending'}#${t.isOfficial ? 'official' : 'unofficial'}`,
         updated_at: new Date().toISOString(),
       }));
 
@@ -560,14 +557,13 @@ export default function App() {
             id,
             type: updatedItem.type,
             full_name: updatedItem.fullName,
-            is_official: Boolean(updatedItem.isOfficial),
             amount: Number(updatedItem.amount) || 0,
             shaba_number: updatedItem.shabaNumber || null,
             bank_name: updatedItem.bankName || null,
             jalali_due_date: updatedItem.jalaliDueDate || '',
             priority: priorityRank,
             is_pinned_top: Boolean(updatedItem.isPinnedTop),
-            status: updatedItem.status || 'pending',
+            status: `${updatedItem.status || 'pending'}#${updatedItem.isOfficial ? 'official' : 'unofficial'}`,
             updated_at: now,
           },
           { onConflict: 'id' }
@@ -601,14 +597,13 @@ export default function App() {
           id: newId,
           type: newItem.type,
           full_name: newItem.fullName,
-          is_official: Boolean(newItem.isOfficial),
           amount: Number(newItem.amount) || 0,
           shaba_number: newItem.shabaNumber || null,
           bank_name: newItem.bankName || null,
           jalali_due_date: newItem.jalaliDueDate || '',
           priority: priorityRank,
           is_pinned_top: Boolean(newItem.isPinnedTop),
-          status: newItem.status || 'pending',
+          status: `${newItem.status || 'pending'}#${newItem.isOfficial ? 'official' : 'unofficial'}`,
           created_at: now,
           updated_at: now,
         });
@@ -660,7 +655,7 @@ export default function App() {
         jalali_due_date: restoredItem.jalaliDueDate || '',
         priority: priorityRank,
         is_pinned_top: Boolean(restoredItem.isPinnedTop),
-        status: 'pending',
+        status: `${restoredItem.status || 'pending'}#${restoredItem.isOfficial ? 'official' : 'unofficial'}`,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });

@@ -89,7 +89,7 @@ export const DebtModal: React.FC<DebtModalProps> = ({
         type: 'debt',
         fullName: fullName.trim(),
         isOfficial,
-        shabaNumber: cleanShaba(shabaNumber),
+        shabaNumber: cleanShaba(shabaNumber) === 'IR' ? '' : cleanShaba(shabaNumber),
         bankName: detectedBank?.name,
         amount: rawAmount,
         paidAmount: editingTransaction ? editingTransaction.paidAmount : 0,

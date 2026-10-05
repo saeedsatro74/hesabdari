@@ -13,6 +13,7 @@ export const transactions = pgTable('transactions', {
   id: text('id').primaryKey(),
   type: text('type').notNull(), // 'debt' | 'credit'
   fullName: text('full_name').notNull(),
+  isOfficial: boolean('is_official').notNull().default(false),
   amount: doublePrecision('amount').notNull(),
   shabaNumber: text('shaba_number'),
   bankName: text('bank_name'),
