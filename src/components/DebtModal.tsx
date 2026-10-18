@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Transaction, PriorityLevel, TransactionStatus } from '../types';
 import { cleanShaba, getBankFromShaba } from '../utils/shaba';
 import { formatToman, toEnglishDigits, numberToPersianWords } from '../utils/numberToPersianWords';
-import { formatToJalali, getTodayGregorian } from '../utils/dateUtils';
+import { formatToJalali, getTodayGregorian, jalaliToGregorian } from '../utils/dateUtils';
 import { X, Check, CreditCard, AlertCircle, FileCheck2, FileText } from 'lucide-react';
 
 interface DebtModalProps {
@@ -23,6 +23,7 @@ export const DebtModal: React.FC<DebtModalProps> = ({
   const [shabaNumber, setShabaNumber] = useState('');
   const [amountStr, setAmountStr] = useState('');
   const [dueDate, setDueDate] = useState(getTodayGregorian());
+  const [jalaliDateStr, setJalaliDateStr] = useState(formatToJalali(getTodayGregorian()));
   const [priority, setPriority] = useState<PriorityLevel>('high');
   const [isPinnedTop, setIsPinnedTop] = useState(false);
   const [status, setStatus] = useState<TransactionStatus>('pending');
@@ -34,7 +35,9 @@ export const DebtModal: React.FC<DebtModalProps> = ({
       setIsOfficial(!!editingTransaction.isOfficial);
       setShabaNumber(editingTransaction.shabaNumber || '');
       setAmountStr(editingTransaction.amount ? String(editingTransaction.amount) : '');
-      setDueDate(editingTransaction.dueDate || getTodayGregorian());
+      const d = editingTransaction.dueDate || getTodayGregorian();
+      setDueDate(d);
+      setJalaliDateStr(formatToJalali(d));
       setPriority(editingTransaction.priority || 'high');
       setIsPinnedTop(!!editingTransaction.isPinnedTop);
       setStatus(editingTransaction.status || 'pending');
@@ -44,7 +47,9 @@ export const DebtModal: React.FC<DebtModalProps> = ({
       setIsOfficial(false);
       setShabaNumber('IR');
       setAmountStr('');
-      setDueDate(getTodayGregorian());
+      const d = getTodayGregorian();
+      setDueDate(d);
+      setJalaliDateStr(formatToJalali(d));
       setPriority('high');
       setIsPinnedTop(false);
       setStatus('pending');
@@ -71,6 +76,21 @@ export const DebtModal: React.FC<DebtModalProps> = ({
       val = 'IR' + val;
     }
     setShabaNumber(val.slice(0, 26));
+  };
+
+  const handleJalaliDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = toEnglishDigits(e.target.value);
+    setJalaliDateStr(val);
+    const parts = val.split('/');
+    if (parts.length === 3) {
+      const jy = parseInt(parts[0], 10);
+      const jm = parseInt(parts[1], 10);
+      const jd = parseInt(parts[2], 10);
+      if (!isNaN(jy) && !isNaN(jm) && !isNaN(jd)) {
+        const [gy, gm, gd] = jalaliToGregorian(jy, jm, jd);
+        setDueDate(`${gy}-${String(gm).padStart(2, '0')}-${String(gd).padStart(2, '0')}`);
+      }
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -235,18 +255,16 @@ export const DebtModal: React.FC<DebtModalProps> = ({
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-slate-700 font-bold">
-                تاریخ موعد پرداخت <span className="text-rose-500">*</span>
+                تاریخ موعد پرداخت (YYYY/MM/DD) <span className="text-rose-500">*</span>
               </label>
-              <span className="text-[11px] text-slate-500 font-mono">
-                تاریخ شمسی: {formatToJalali(dueDate)}
-              </span>
             </div>
             <input
-              type="date"
+              type="text"
               required
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 focus:border-rose-500 focus:bg-white rounded-xl px-3.5 py-2 text-slate-800 outline-none transition-colors"
+              value={jalaliDateStr}
+              onChange={handleJalaliDateChange}
+              placeholder="1405/07/26"
+              className="w-full bg-slate-50 border border-slate-200 focus:border-rose-500 focus:bg-white rounded-xl px-3.5 py-2 text-slate-800 font-mono dir-ltr outline-none text-center transition-colors"
             />
           </div>
 
