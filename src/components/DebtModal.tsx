@@ -27,6 +27,7 @@ export const DebtModal: React.FC<DebtModalProps> = ({
   const [priority, setPriority] = useState<PriorityLevel>('high');
   const [isPinnedTop, setIsPinnedTop] = useState(false);
   const [status, setStatus] = useState<TransactionStatus>('pending');
+  const [description, setDescription] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
@@ -41,6 +42,7 @@ export const DebtModal: React.FC<DebtModalProps> = ({
       setPriority(editingTransaction.priority || 'high');
       setIsPinnedTop(!!editingTransaction.isPinnedTop);
       setStatus(editingTransaction.status || 'pending');
+      setDescription(editingTransaction.description || '');
       setErrorMsg('');
     } else {
       setFullName('');
@@ -53,6 +55,7 @@ export const DebtModal: React.FC<DebtModalProps> = ({
       setPriority('high');
       setIsPinnedTop(false);
       setStatus('pending');
+      setDescription('');
       setErrorMsg('');
     }
   }, [editingTransaction, isOpen]);
@@ -119,6 +122,7 @@ export const DebtModal: React.FC<DebtModalProps> = ({
         priorityRank: isPinnedTop ? 1 : 2,
         isPinnedTop,
         status,
+        description: description.trim(),
       },
       editingTransaction?.id
     );
@@ -265,6 +269,20 @@ export const DebtModal: React.FC<DebtModalProps> = ({
               onChange={handleJalaliDateChange}
               placeholder="1405/07/26"
               className="w-full bg-slate-50 border border-slate-200 focus:border-rose-500 focus:bg-white rounded-xl px-3.5 py-2 text-slate-800 font-mono dir-ltr outline-none text-center transition-colors"
+            />
+          </div>
+
+          {/* فیلد توضیحات و بابت فاکتور */}
+          <div>
+            <label className="block text-slate-700 font-bold mb-1.5">
+              توضیحات (بابت / شماره فاکتور / یادداشت)
+            </label>
+            <textarea
+              rows={2}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="مثال: بابت خرید لوله و اتصالات / فاکتور شماره ۵۴۲"
+              className="w-full bg-slate-50 border border-slate-200 focus:border-rose-500 focus:bg-white rounded-xl px-3.5 py-2 text-slate-800 outline-none resize-none transition-colors text-xs"
             />
           </div>
 

@@ -149,6 +149,7 @@ export default function App() {
                 priorityRank: Number(t.priority) || 1,
                 isPinnedTop: Boolean(t.is_pinned_top ?? t.isPinnedTop),
                 status: cleanStatus,
+                description: t.description || null,
                 paymentRecords: t.payment_records || t.paymentRecords || [],
                 createdAt: t.created_at || t.createdAt || new Date().toISOString(),
                 updatedAt: t.updated_at || t.updatedAt || new Date().toISOString(),
@@ -239,6 +240,7 @@ export default function App() {
             : 2),
         is_pinned_top: Boolean(t.isPinnedTop),
         status: `${t.status || 'pending'}#${t.isOfficial ? 'official' : 'unofficial'}`,
+        description: t.description || null,
         updated_at: new Date().toISOString(),
       }));
 
@@ -376,6 +378,7 @@ export default function App() {
           t.fullName.toLowerCase().includes(s) ||
           (t.shabaNumber && t.shabaNumber.toLowerCase().includes(s)) ||
           String(t.amount).includes(s) ||
+          (t.description && t.description.toLowerCase().includes(s)) ||
           (t.jalaliDueDate && t.jalaliDueDate.includes(s))
         );
       })
@@ -408,6 +411,7 @@ export default function App() {
         return (
           t.fullName.toLowerCase().includes(s) ||
           String(t.amount).includes(s) ||
+          (t.description && t.description.toLowerCase().includes(s)) ||
           (t.jalaliDueDate && t.jalaliDueDate.includes(s))
         );
       })
@@ -562,6 +566,7 @@ export default function App() {
             priority: priorityRank,
             is_pinned_top: Boolean(updatedItem.isPinnedTop),
             status: `${updatedItem.status || 'pending'}#${updatedItem.isOfficial ? 'official' : 'unofficial'}`,
+            description: updatedItem.description || null,
             updated_at: now,
           }
         ]);
@@ -602,6 +607,7 @@ export default function App() {
           priority: priorityRank,
           is_pinned_top: Boolean(newItem.isPinnedTop),
           status: `${newItem.status || 'pending'}#${newItem.isOfficial ? 'official' : 'unofficial'}`,
+          description: newItem.description || null,
           created_at: now,
           updated_at: now,
         });
@@ -997,6 +1003,9 @@ export default function App() {
                           </div>
                         </th>
 
+                        {/* ستون توضیحات */}
+                        <th className="py-2.5 px-3 text-right">توضیحات</th>
+
                         <th className="py-2.5 px-2 text-center w-20">تسویه</th>
                         <th className="py-2.5 px-2 text-center w-14">عملیات</th>
                       </tr>
@@ -1004,7 +1013,7 @@ export default function App() {
                     <tbody className="divide-y divide-slate-100">
                       {debtList.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="py-12 text-center text-slate-400 text-xs">
+                          <td colSpan={7} className="py-12 text-center text-slate-400 text-xs">
                             هیچ بدهی بازی ثبت نشده است.
                           </td>
                         </tr>
@@ -1114,6 +1123,17 @@ export default function App() {
                               <td className="py-2.5 px-2 text-center">
                                 <div className="font-mono text-slate-700 text-[11px]">{item.jalaliDueDate || '—'}</div>
                                 <div className="text-[10px] text-slate-400 mt-0.5">{due.badgeText}</div>
+                              </td>
+
+                              {/* توضیحات */}
+                              <td className="py-2.5 px-3 text-right max-w-[170px]">
+                                {item.description ? (
+                                  <div className="text-[11px] text-slate-700 line-clamp-2 leading-relaxed" title={item.description}>
+                                    {item.description}
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-300 text-[10px]">—</span>
+                                )}
                               </td>
 
                               {/* تسویه (واریز شد) */}
@@ -1255,6 +1275,9 @@ export default function App() {
                           </div>
                         </th>
 
+                        {/* ستون توضیحات */}
+                        <th className="py-2.5 px-3 text-right">توضیحات</th>
+
                         <th className="py-2.5 px-2 text-center w-20">تسویه</th>
                         <th className="py-2.5 px-2 text-center w-14">عملیات</th>
                       </tr>
@@ -1262,7 +1285,7 @@ export default function App() {
                     <tbody className="divide-y divide-slate-100">
                       {creditList.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="py-12 text-center text-slate-400 text-xs">
+                          <td colSpan={7} className="py-12 text-center text-slate-400 text-xs">
                             هیچ طلب باز یا بدهکاری ثبت نشده است.
                           </td>
                         </tr>
@@ -1350,6 +1373,17 @@ export default function App() {
                               <td className="py-2.5 px-2 text-center">
                                 <div className="font-mono text-slate-700 text-[11px]">{item.jalaliDueDate || '—'}</div>
                                 <div className="text-[10px] text-slate-400 mt-0.5">{due.badgeText}</div>
+                              </td>
+
+                              {/* توضیحات */}
+                              <td className="py-2.5 px-3 text-right max-w-[170px]">
+                                {item.description ? (
+                                  <div className="text-[11px] text-slate-700 line-clamp-2 leading-relaxed" title={item.description}>
+                                    {item.description}
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-300 text-[10px]">—</span>
+                                )}
                               </td>
 
                               {/* تسویه (وصول شد) */}

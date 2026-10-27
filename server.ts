@@ -201,10 +201,14 @@ async function startServer() {
           .select('*');
 
         if (!supaErr && supaRows && supaRows.length > 0) {
+          const fileData = await readTransactionsFile().catch(() => []);
+          const fileMap = new Map((fileData || []).map((f: any) => [f.id, f]));
+
           const mapped = supaRows.map((r: any) => {
             const rawStatus = r.status || 'pending';
             const isOfficial = rawStatus.includes('#official') || rawStatus.includes(':official') || Boolean(r.is_official ?? r.isOfficial);
             const cleanStatus = rawStatus.split('#')[0].split(':')[0] || 'pending';
+            const fileItem = fileMap.get(r.id);
 
             return {
               id: r.id,
@@ -218,6 +222,7 @@ async function startServer() {
               priority: Number(r.priority) || 1,
               isPinnedTop: Boolean(r.is_pinned_top || r.isPinnedTop),
               status: cleanStatus,
+              description: r.description || fileItem?.description || null,
             };
           });
           await writeTransactionsFile(mapped).catch(() => {});
@@ -262,6 +267,7 @@ async function startServer() {
             priority: Number(t.priorityRank) || (typeof t.priority === 'number' ? t.priority : 1),
             is_pinned_top: Boolean(t.isPinnedTop),
             status: `${t.status || 'pending'}#${t.isOfficial ? 'official' : 'unofficial'}`,
+            description: t.description || null,
             updated_at: new Date().toISOString(),
           }));
 
